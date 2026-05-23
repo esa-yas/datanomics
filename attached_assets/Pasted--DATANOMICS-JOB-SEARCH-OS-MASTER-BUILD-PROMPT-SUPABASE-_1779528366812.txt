@@ -1,0 +1,1393 @@
+# 🚀 DATANOMICS JOB SEARCH OS — MASTER BUILD PROMPT (SUPABASE)
+> Paste this entire prompt into Replit AI to build the full application.
+
+---
+
+## PROJECT IDENTITY
+
+You are building **Datanomics Job Search OS** — an internal operations platform for a professional data career placement company called **Datanomics Technology**. This is a full-stack web application with role-based access, AI-powered resume tailoring, applicant tracking, employee performance dashboards, and a client-facing portal.
+
+This is a **production-grade** system. Build every feature as if real clients, real employees, and a technical CEO (ex-Google/Amazon/Meta Data Engineer) will review it daily.
+
+This is a **job placement operations tool only**. There are NO students, NO courses, NO batches, NO enrollment. The candidates are job seekers paying for placement services. Keep these concepts completely separate.
+
+---
+
+## TECH STACK
+
+| Layer | Technology |
+|---|---|
+| Frontend | React (Vite) + TypeScript |
+| Styling | Tailwind CSS + custom CSS variables |
+| Backend / DB | **Supabase** (PostgreSQL + Auth + Storage + Edge Functions) |
+| AI (Primary, ACTIVE) | Google Gemini API (`gemini-1.5-pro`) |
+| AI (Secondary, DISABLED) | OpenAI GPT-4o — configured but not active |
+| AI (Tertiary, DISABLED) | Anthropic Claude — configured but not active |
+| State Management | Zustand |
+| Routing | React Router v6 |
+| Forms | React Hook Form + Zod validation |
+| Charts | Recharts |
+| Icons | Lucide React |
+| Notifications | React Hot Toast |
+| File Export | docx.js |
+| Date Handling | date-fns |
+| Supabase Client | `@supabase/supabase-js` |
+
+---
+
+## BRANDING & DESIGN SYSTEM
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono&display=swap');
+
+:root {
+  --color-navy:        #1B2D4F;
+  --color-navy-dark:   #0F1C33;
+  --color-navy-light:  #243660;
+  --color-teal:        #00C896;
+  --color-teal-light:  #00E5AC;
+  --color-blue:        #0099E6;
+  --color-blue-light:  #33AAEE;
+  --color-white:       #FFFFFF;
+  --color-gray-400:    #94A3B8;
+  --color-gray-600:    #475569;
+  --color-success:     #00C896;
+  --color-warning:     #F59E0B;
+  --color-error:       #EF4444;
+  --surface-bg:        #0F1C33;
+  --surface-card:      #1B2D4F;
+  --surface-elevated:  #243660;
+  --surface-border:    rgba(255,255,255,0.08);
+  --font-display:      'Plus Jakarta Sans', sans-serif;
+  --font-body:         'DM Sans', sans-serif;
+  --font-mono:         'JetBrains Mono', monospace;
+}
+```
+
+**Design rules:**
+- Dark navy background everywhere. No white backgrounds.
+- Teal (`#00C896`) = primary action buttons, success states, active nav
+- Blue (`#0099E6`) = info badges, links, secondary actions
+- Angular geometric aesthetic — 8px border radius, sharp card edges
+- `Plus Jakarta Sans` for all headings, `DM Sans` for body
+- Subtle hover lift on cards: `transform: translateY(-2px)`
+
+---
+
+## SUPABASE SETUP
+
+### Install
+```bash
+npm install @supabase/supabase-js
+```
+
+### Client (`src/lib/supabase.ts`)
+```typescript
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from '../types/database';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+  },
+});
+```
+
+---
+
+## DATABASE SCHEMA (PostgreSQL via Supabase)
+
+Run all of the following SQL in the **Supabase SQL Editor** in order.
+
+---
+
+### ENUMS
+
+```sql
+-- User roles
+CREATE TYPE user_role AS ENUM (
+  'admin',
+  'manager',
+  'team_lead',
+  'job_search_assistant',
+  'resume_specialist',
+  'email_specialist',
+  'client'
+);
+
+-- User status
+CREATE TYPE user_status AS ENUM ('active', 'inactive', 'suspended');
+
+-- Candidate pipeline status
+CREATE TYPE candidate_status AS ENUM (
+  'lead',
+  'resume_in_progress',
+  'profile_setup',
+  'application_started',
+  'active_search',
+  'interview_stage',
+  'offer_received',
+  'placed',
+  'paused',
+  'dropped'
+);
+
+-- Work modes
+CREATE TYPE work_mode AS ENUM ('remote', 'hybrid', 'onsite');
+
+-- Work authorization
+CREATE TYPE work_auth AS ENUM (
+  'USC', 'GC', 'H1B', 'OPT', 'CPT', 'TN', 'EAD', 'Other'
+);
+
+-- Application status
+CREATE TYPE application_status AS ENUM (
+  'applied',
+  'viewed',
+  'recruiter_replied',
+  'phone_screen',
+  'interview_scheduled',
+  'interview_done',
+  'final_round',
+  'offer',
+  'rejected',
+  'ghosted',
+  'withdrawn'
+);
+
+-- Job sources
+CREATE TYPE job_source AS ENUM (
+  'linkedin', 'dice', 'indeed', 'ziprecruiter',
+  'glassdoor', 'monster', 'direct', 'referral', 'other'
+);
+
+-- Pay type
+CREATE TYPE pay_type AS ENUM ('hourly_w2', 'hourly_c2c', 'annual_salary');
+
+-- Resume type
+CREATE TYPE resume_type AS ENUM ('base', 'tailored', 'draft');
+
+-- Message direction
+CREATE TYPE message_direction AS ENUM ('inbound', 'outbound');
+
+-- Message channel
+CREATE TYPE message_channel AS ENUM ('email', 'linkedin', 'phone');
+
+-- Message status
+CREATE TYPE message_status AS ENUM (
+  'unread', 'read', 'replied', 'ignored', 'action_needed'
+);
+
+-- Message priority
+CREATE TYPE message_priority AS ENUM ('high', 'normal', 'low');
+
+-- Template category
+CREATE TYPE template_category AS ENUM (
+  'recruiter_reply', 'follow_up', 'interview_availability',
+  'salary_answer', 'work_auth_answer', 'relocation_answer',
+  'rejection_followup', 'application_form', 'client_update'
+);
+
+-- AI session type
+CREATE TYPE ai_session_type AS ENUM (
+  'resume_tailor', 'jd_parse', 'recruiter_reply',
+  'weekly_summary', 'match_score', 'skill_gap', 'chat_assist'
+);
+
+-- AI provider
+CREATE TYPE ai_provider AS ENUM ('gemini', 'openai', 'anthropic');
+
+-- Notification type
+CREATE TYPE notification_type AS ENUM ('info', 'warning', 'success', 'alert');
+
+-- Report generated by
+CREATE TYPE report_generated_by AS ENUM ('auto', 'manual');
+```
+
+---
+
+### TABLE: `profiles`
+Extends Supabase Auth users with role and app-specific fields.
+
+```sql
+CREATE TABLE profiles (
+  id                          UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email                       TEXT NOT NULL,
+  display_name                TEXT NOT NULL,
+  photo_url                   TEXT,
+  role                        user_role NOT NULL DEFAULT 'job_search_assistant',
+  status                      user_status NOT NULL DEFAULT 'active',
+  phone_number                TEXT,
+  timezone                    TEXT NOT NULL DEFAULT 'America/New_York',
+  weekly_target_applications  INTEGER NOT NULL DEFAULT 100,
+  reply_sla_hours             INTEGER NOT NULL DEFAULT 24,
+  created_by                  UUID REFERENCES profiles(id),
+  last_login_at               TIMESTAMPTZ,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Auto-update updated_at
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER profiles_updated_at
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+```
+
+---
+
+### TABLE: `candidates`
+
+```sql
+CREATE TABLE candidates (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name             TEXT NOT NULL,
+  email                 TEXT NOT NULL,
+  email_password        TEXT,                          -- stored for employee access
+  phone                 TEXT NOT NULL,
+  whatsapp              TEXT,
+  linkedin_url          TEXT,
+
+  -- Location
+  city                  TEXT,
+  state                 TEXT,
+  country               TEXT DEFAULT 'USA',
+  preferred_work_modes  work_mode[] DEFAULT '{}',
+  willing_to_relocate   BOOLEAN DEFAULT FALSE,
+  preferred_states      TEXT[] DEFAULT '{}',
+
+  -- Professional
+  work_auth             work_auth NOT NULL,
+  target_roles          TEXT[] DEFAULT '{}',
+  min_rate              NUMERIC(10,2),
+  rate_type             TEXT CHECK (rate_type IN ('hourly', 'annual')),
+  skills                TEXT[] DEFAULT '{}',
+  experience_years      INTEGER DEFAULT 0,
+
+  -- Status & Pipeline
+  status                candidate_status NOT NULL DEFAULT 'lead',
+  total_applications    INTEGER NOT NULL DEFAULT 0,
+  total_replies         INTEGER NOT NULL DEFAULT 0,
+  total_interviews      INTEGER NOT NULL DEFAULT 0,
+  total_offers          INTEGER NOT NULL DEFAULT 0,
+  last_application_date TIMESTAMPTZ,
+  last_reply_date       TIMESTAMPTZ,
+  last_interview_date   TIMESTAMPTZ,
+
+  -- Team assignment
+  primary_assignee_id         UUID REFERENCES profiles(id),
+  application_specialist_id   UUID REFERENCES profiles(id),
+  resume_specialist_id        UUID REFERENCES profiles(id),
+  email_specialist_id         UUID REFERENCES profiles(id),
+  manager_id                  UUID REFERENCES profiles(id),
+
+  -- Placement (filled when status = 'placed')
+  placed_at             TIMESTAMPTZ,
+  placed_company        TEXT,
+  placed_role           TEXT,
+  placed_salary         NUMERIC(10,2),
+  placed_salary_type    TEXT CHECK (placed_salary_type IN ('hourly', 'annual')),
+
+  -- Meta
+  tags                  TEXT[] DEFAULT '{}',
+  notes                 TEXT DEFAULT '',
+  client_portal_enabled BOOLEAN DEFAULT FALSE,
+  created_by            UUID REFERENCES profiles(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TRIGGER candidates_updated_at
+  BEFORE UPDATE ON candidates
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Indexes
+CREATE INDEX idx_candidates_status           ON candidates(status);
+CREATE INDEX idx_candidates_primary_assignee ON candidates(primary_assignee_id);
+CREATE INDEX idx_candidates_manager          ON candidates(manager_id);
+```
+
+---
+
+### TABLE: `candidate_notes`
+
+```sql
+CREATE TABLE candidate_notes (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id  UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  content       TEXT NOT NULL,
+  author_id     UUID NOT NULL REFERENCES profiles(id),
+  author_name   TEXT NOT NULL,
+  pinned        BOOLEAN DEFAULT FALSE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_notes_candidate ON candidate_notes(candidate_id);
+```
+
+---
+
+### TABLE: `follow_ups`
+
+```sql
+CREATE TABLE follow_ups (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id    UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  application_id  UUID,                                   -- FK added after applications table
+  due_date        TIMESTAMPTZ NOT NULL,
+  description     TEXT NOT NULL,
+  assigned_to     UUID NOT NULL REFERENCES profiles(id),
+  completed       BOOLEAN DEFAULT FALSE,
+  completed_at    TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_followups_candidate    ON follow_ups(candidate_id);
+CREATE INDEX idx_followups_assigned_to  ON follow_ups(assigned_to);
+CREATE INDEX idx_followups_due_date     ON follow_ups(due_date) WHERE completed = FALSE;
+```
+
+---
+
+### TABLE: `applications`
+
+```sql
+CREATE TABLE applications (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id              UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  candidate_name            TEXT NOT NULL,               -- denormalized
+  applied_by                UUID NOT NULL REFERENCES profiles(id),
+  applied_by_name           TEXT NOT NULL,               -- denormalized
+
+  -- Job details
+  job_title                 TEXT NOT NULL,
+  company                   TEXT NOT NULL,
+  city                      TEXT,
+  state                     TEXT,
+  work_mode                 work_mode NOT NULL DEFAULT 'remote',
+  job_source                job_source NOT NULL DEFAULT 'linkedin',
+  job_url                   TEXT,
+  job_description           TEXT,
+
+  -- Compensation
+  pay_rate                  NUMERIC(10,2),
+  pay_type                  pay_type,
+
+  -- Resume used
+  resume_version_id         UUID,                        -- FK added after resumes table
+  resume_version_name       TEXT,
+  cover_letter_used         BOOLEAN DEFAULT FALSE,
+
+  -- Status
+  status                    application_status NOT NULL DEFAULT 'applied',
+
+  -- Recruiter info
+  recruiter_name            TEXT,
+  recruiter_email           TEXT,
+  recruiter_phone           TEXT,
+  recruiter_company         TEXT,
+
+  -- Timeline
+  applied_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  first_reply_at            TIMESTAMPTZ,
+  last_activity_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  next_follow_up_date       TIMESTAMPTZ,
+  interview_date            TIMESTAMPTZ,
+  offer_date                TIMESTAMPTZ,
+  offer_amount              NUMERIC(10,2),
+
+  -- AI & Quality
+  ai_match_score            INTEGER CHECK (ai_match_score BETWEEN 0 AND 100),
+  missing_keywords          TEXT[] DEFAULT '{}',
+  quality_resume_tailored   BOOLEAN DEFAULT FALSE,
+  quality_location_verified BOOLEAN DEFAULT FALSE,
+  quality_salary_verified   BOOLEAN DEFAULT FALSE,
+  quality_auth_verified     BOOLEAN DEFAULT FALSE,
+  quality_duplicate_checked BOOLEAN DEFAULT FALSE,
+  quality_notes_added       BOOLEAN DEFAULT FALSE,
+  quality_score             INTEGER NOT NULL DEFAULT 0
+                              CHECK (quality_score BETWEEN 0 AND 100),
+
+  -- Flags
+  notes                     TEXT DEFAULT '',
+  flagged                   BOOLEAN DEFAULT FALSE,
+  flag_reason               TEXT,
+
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TRIGGER applications_updated_at
+  BEFORE UPDATE ON applications
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Add deferred FK from follow_ups
+ALTER TABLE follow_ups
+  ADD CONSTRAINT fk_followup_application
+  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL;
+
+-- Indexes
+CREATE INDEX idx_apps_candidate     ON applications(candidate_id);
+CREATE INDEX idx_apps_applied_by    ON applications(applied_by);
+CREATE INDEX idx_apps_status        ON applications(status);
+CREATE INDEX idx_apps_applied_at    ON applications(applied_at DESC);
+CREATE INDEX idx_apps_company       ON applications(company);
+CREATE INDEX idx_apps_flagged       ON applications(flagged) WHERE flagged = TRUE;
+```
+
+---
+
+### TABLE: `application_status_history`
+
+```sql
+CREATE TABLE application_status_history (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id  UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+  status          application_status NOT NULL,
+  changed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  changed_by      UUID NOT NULL REFERENCES profiles(id),
+  changed_by_name TEXT NOT NULL,
+  note            TEXT
+);
+
+CREATE INDEX idx_status_history_app ON application_status_history(application_id);
+```
+
+---
+
+### TABLE: `application_messages`
+
+```sql
+CREATE TABLE application_messages (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id  UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+  direction       message_direction NOT NULL,
+  channel         message_channel NOT NULL DEFAULT 'email',
+  content         TEXT NOT NULL,
+  sent_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_by         UUID REFERENCES profiles(id)
+);
+
+CREATE INDEX idx_app_messages_app ON application_messages(application_id);
+```
+
+---
+
+### TABLE: `resumes`
+
+```sql
+CREATE TABLE resumes (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id      UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  version_name      TEXT NOT NULL,
+  version_number    INTEGER NOT NULL DEFAULT 1,
+  type              resume_type NOT NULL DEFAULT 'base',
+
+  -- Content (stored as structured JSON for flexibility)
+  job_title         TEXT NOT NULL DEFAULT '',
+  summary           TEXT DEFAULT '',
+  skills            TEXT[] DEFAULT '{}',
+  experience        JSONB DEFAULT '[]',   -- [{company, title, startDate, endDate, bullets[]}]
+  certifications    TEXT[] DEFAULT '{}',
+
+  -- Files
+  docx_file_url     TEXT,
+  pdf_file_url      TEXT,
+  raw_text          TEXT,
+
+  -- AI tailoring metadata
+  tailored_for_job_title    TEXT,
+  tailored_for_company      TEXT,
+  tailored_application_id   UUID REFERENCES applications(id) ON DELETE SET NULL,
+  jd_snapshot               TEXT,
+  match_score_before        INTEGER,
+  match_score_after         INTEGER,
+  added_keywords            TEXT[] DEFAULT '{}',
+  ai_model_used             ai_provider,
+  tailored_at               TIMESTAMPTZ,
+
+  is_active         BOOLEAN DEFAULT TRUE,
+  created_by        UUID NOT NULL REFERENCES profiles(id),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TRIGGER resumes_updated_at
+  BEFORE UPDATE ON resumes
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Add deferred FK from applications
+ALTER TABLE applications
+  ADD CONSTRAINT fk_app_resume
+  FOREIGN KEY (resume_version_id) REFERENCES resumes(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_resumes_candidate ON resumes(candidate_id);
+CREATE INDEX idx_resumes_type      ON resumes(candidate_id, type);
+```
+
+---
+
+### TABLE: `recruiter_messages`
+
+```sql
+CREATE TABLE recruiter_messages (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id    UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  application_id  UUID REFERENCES applications(id) ON DELETE SET NULL,
+  direction       message_direction NOT NULL,
+  channel         message_channel NOT NULL DEFAULT 'email',
+  subject         TEXT,
+  body            TEXT NOT NULL,
+  from_address    TEXT,
+  to_address      TEXT,
+  status          message_status NOT NULL DEFAULT 'unread',
+  priority        message_priority NOT NULL DEFAULT 'normal',
+  replied_at      TIMESTAMPTZ,
+  replied_by      UUID REFERENCES profiles(id),
+  ai_reply        TEXT,
+  actual_reply    TEXT,
+  assigned_to     UUID NOT NULL REFERENCES profiles(id),
+  received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_recruiter_msgs_candidate   ON recruiter_messages(candidate_id);
+CREATE INDEX idx_recruiter_msgs_assigned    ON recruiter_messages(assigned_to);
+CREATE INDEX idx_recruiter_msgs_unread      ON recruiter_messages(status) WHERE status = 'unread';
+```
+
+---
+
+### TABLE: `weekly_reports`
+
+```sql
+CREATE TABLE weekly_reports (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id            UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  candidate_name          TEXT NOT NULL,
+  week_start_date         DATE NOT NULL,
+  week_end_date           DATE NOT NULL,
+  week_number             INTEGER NOT NULL,
+  year                    INTEGER NOT NULL,
+
+  -- Metrics
+  applications_submitted  INTEGER DEFAULT 0,
+  recruiter_replies       INTEGER DEFAULT 0,
+  interviews_scheduled    INTEGER DEFAULT 0,
+  offers_received         INTEGER DEFAULT 0,
+  resumes_tailored        INTEGER DEFAULT 0,
+  follow_ups_sent         INTEGER DEFAULT 0,
+  pending_messages        INTEGER DEFAULT 0,
+  response_rate           NUMERIC(5,2) DEFAULT 0,
+
+  -- Content
+  top_companies           TEXT[] DEFAULT '{}',
+  top_roles               TEXT[] DEFAULT '{}',
+  highlights              TEXT[] DEFAULT '{}',
+  next_week_focus         TEXT[] DEFAULT '{}',
+  ai_narrative            TEXT,
+
+  -- Delivery
+  generated_by            report_generated_by DEFAULT 'auto',
+  sent_to_client          BOOLEAN DEFAULT FALSE,
+  sent_at                 TIMESTAMPTZ,
+  emailed_to              TEXT,
+
+  -- Relations
+  employee_id             UUID REFERENCES profiles(id),
+  manager_id              UUID REFERENCES profiles(id),
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_reports_candidate  ON weekly_reports(candidate_id);
+CREATE INDEX idx_reports_week       ON weekly_reports(week_start_date DESC);
+CREATE UNIQUE INDEX idx_reports_unique_week
+  ON weekly_reports(candidate_id, week_start_date);
+```
+
+---
+
+### TABLE: `templates`
+
+```sql
+CREATE TABLE templates (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT NOT NULL,
+  category    template_category NOT NULL,
+  subject     TEXT,
+  body        TEXT NOT NULL,
+  variables   TEXT[] DEFAULT '{}',
+  is_global   BOOLEAN DEFAULT TRUE,
+  usage_count INTEGER DEFAULT 0,
+  created_by  UUID NOT NULL REFERENCES profiles(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_templates_category ON templates(category);
+```
+
+---
+
+### TABLE: `ai_sessions`
+
+```sql
+CREATE TABLE ai_sessions (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type                ai_session_type NOT NULL,
+  candidate_id        UUID REFERENCES candidates(id) ON DELETE SET NULL,
+  application_id      UUID REFERENCES applications(id) ON DELETE SET NULL,
+  resume_id           UUID REFERENCES resumes(id) ON DELETE SET NULL,
+  user_id             UUID NOT NULL REFERENCES profiles(id),
+  model               TEXT NOT NULL,
+  input_prompt        TEXT NOT NULL,
+  output_result       TEXT,
+  tokens_used         INTEGER,
+  processing_ms       INTEGER,
+  success             BOOLEAN DEFAULT TRUE,
+  error_message       TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_ai_sessions_user      ON ai_sessions(user_id);
+CREATE INDEX idx_ai_sessions_candidate ON ai_sessions(candidate_id);
+```
+
+---
+
+### TABLE: `notifications`
+
+```sql
+CREATE TABLE notifications (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  message     TEXT NOT NULL,
+  type        notification_type DEFAULT 'info',
+  read        BOOLEAN DEFAULT FALSE,
+  link        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_notifications_user   ON notifications(user_id);
+CREATE INDEX idx_notifications_unread ON notifications(user_id) WHERE read = FALSE;
+```
+
+---
+
+### TABLE: `system_settings`
+
+```sql
+CREATE TABLE system_settings (
+  id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  active_ai_provider          ai_provider NOT NULL DEFAULT 'gemini',
+  daily_application_target    INTEGER DEFAULT 20,
+  weekly_application_target   INTEGER DEFAULT 100,
+  reply_sla_hours             INTEGER DEFAULT 24,
+  quality_score_threshold     INTEGER DEFAULT 60,
+  weekly_report_auto_send     BOOLEAN DEFAULT TRUE,
+  weekly_report_day_of_week   INTEGER DEFAULT 5,     -- 5 = Friday
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by                  UUID REFERENCES profiles(id)
+);
+
+-- Seed default settings row
+INSERT INTO system_settings (active_ai_provider) VALUES ('gemini');
+```
+
+---
+
+### TRIGGER: Auto-increment candidate pipeline counters
+
+```sql
+CREATE OR REPLACE FUNCTION sync_candidate_pipeline()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- On new application
+  IF TG_OP = 'INSERT' THEN
+    UPDATE candidates SET
+      total_applications = total_applications + 1,
+      last_application_date = NOW(),
+      updated_at = NOW()
+    WHERE id = NEW.candidate_id;
+  END IF;
+
+  -- On status change to recruiter_replied
+  IF TG_OP = 'UPDATE' AND NEW.status = 'recruiter_replied'
+      AND OLD.status != 'recruiter_replied' THEN
+    UPDATE candidates SET
+      total_replies = total_replies + 1,
+      last_reply_date = NOW(),
+      updated_at = NOW()
+    WHERE id = NEW.candidate_id;
+  END IF;
+
+  -- On status change to interview_scheduled
+  IF TG_OP = 'UPDATE' AND NEW.status = 'interview_scheduled'
+      AND OLD.status != 'interview_scheduled' THEN
+    UPDATE candidates SET
+      total_interviews = total_interviews + 1,
+      last_interview_date = NOW(),
+      updated_at = NOW()
+    WHERE id = NEW.candidate_id;
+  END IF;
+
+  -- On status change to offer
+  IF TG_OP = 'UPDATE' AND NEW.status = 'offer'
+      AND OLD.status != 'offer' THEN
+    UPDATE candidates SET
+      total_offers = total_offers + 1,
+      updated_at = NOW()
+    WHERE id = NEW.candidate_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_sync_pipeline
+  AFTER INSERT OR UPDATE ON applications
+  FOR EACH ROW EXECUTE FUNCTION sync_candidate_pipeline();
+```
+
+---
+
+### TRIGGER: Log status history automatically
+
+```sql
+CREATE OR REPLACE FUNCTION log_application_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.status != OLD.status) THEN
+    INSERT INTO application_status_history
+      (application_id, status, changed_by, changed_by_name)
+    VALUES
+      (NEW.id, NEW.status, NEW.applied_by, NEW.applied_by_name);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_log_status
+  AFTER INSERT OR UPDATE ON applications
+  FOR EACH ROW EXECUTE FUNCTION log_application_status_change();
+```
+
+---
+
+## ROW LEVEL SECURITY (RLS)
+
+Enable RLS on every table, then define policies.
+
+```sql
+-- Enable RLS
+ALTER TABLE profiles              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidates            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidate_notes       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE follow_ups            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE applications          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE application_status_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE application_messages  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resumes               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recruiter_messages    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE weekly_reports        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE templates             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_sessions           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_settings       ENABLE ROW LEVEL SECURITY;
+
+-- Helper: get current user role
+CREATE OR REPLACE FUNCTION get_my_role()
+RETURNS user_role AS $$
+  SELECT role FROM profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Helper: is employee?
+CREATE OR REPLACE FUNCTION is_employee()
+RETURNS BOOLEAN AS $$
+  SELECT get_my_role() IN (
+    'admin','manager','team_lead',
+    'job_search_assistant','resume_specialist','email_specialist'
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION is_manager()
+RETURNS BOOLEAN AS $$
+  SELECT get_my_role() IN ('admin','manager');
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN AS $$
+  SELECT get_my_role() = 'admin';
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- PROFILES
+CREATE POLICY "Users can read own profile"
+  ON profiles FOR SELECT USING (id = auth.uid() OR is_manager());
+CREATE POLICY "Admin creates users"
+  ON profiles FOR INSERT WITH CHECK (is_admin());
+CREATE POLICY "Admin or self can update"
+  ON profiles FOR UPDATE USING (is_admin() OR id = auth.uid());
+
+-- CANDIDATES
+CREATE POLICY "Employees read all candidates"
+  ON candidates FOR SELECT USING (is_employee());
+CREATE POLICY "Client reads own candidate record"
+  ON candidates FOR SELECT
+  USING (get_my_role() = 'client' AND email = (SELECT email FROM profiles WHERE id = auth.uid()));
+CREATE POLICY "Manager creates candidates"
+  ON candidates FOR INSERT WITH CHECK (is_manager());
+CREATE POLICY "Employees update candidates"
+  ON candidates FOR UPDATE USING (is_employee());
+CREATE POLICY "Admin deletes candidates"
+  ON candidates FOR DELETE USING (is_admin());
+
+-- CANDIDATE NOTES
+CREATE POLICY "Employees manage notes"
+  ON candidate_notes FOR ALL USING (is_employee());
+
+-- FOLLOW UPS
+CREATE POLICY "Employees manage follow ups"
+  ON follow_ups FOR ALL USING (is_employee());
+
+-- APPLICATIONS
+CREATE POLICY "Employees read all applications"
+  ON applications FOR SELECT USING (is_employee());
+CREATE POLICY "Employees create/update applications"
+  ON applications FOR INSERT WITH CHECK (is_employee());
+CREATE POLICY "Employees update applications"
+  ON applications FOR UPDATE USING (is_employee());
+CREATE POLICY "Manager deletes applications"
+  ON applications FOR DELETE USING (is_manager());
+
+-- APPLICATION STATUS HISTORY
+CREATE POLICY "Employees read history"
+  ON application_status_history FOR SELECT USING (is_employee());
+CREATE POLICY "Auto insert only"
+  ON application_status_history FOR INSERT WITH CHECK (is_employee());
+
+-- APPLICATION MESSAGES
+CREATE POLICY "Employees manage app messages"
+  ON application_messages FOR ALL USING (is_employee());
+
+-- RESUMES
+CREATE POLICY "Employees manage resumes"
+  ON resumes FOR ALL USING (is_employee());
+
+-- RECRUITER MESSAGES
+CREATE POLICY "Employees manage recruiter messages"
+  ON recruiter_messages FOR ALL USING (is_employee());
+
+-- WEEKLY REPORTS
+CREATE POLICY "Employees manage reports"
+  ON weekly_reports FOR ALL USING (is_employee());
+CREATE POLICY "Client reads own reports"
+  ON weekly_reports FOR SELECT
+  USING (get_my_role() = 'client' AND
+    candidate_id IN (SELECT id FROM candidates WHERE email =
+      (SELECT email FROM profiles WHERE id = auth.uid())));
+
+-- TEMPLATES
+CREATE POLICY "Employees read templates"
+  ON templates FOR SELECT USING (is_employee());
+CREATE POLICY "Managers manage templates"
+  ON templates FOR INSERT WITH CHECK (is_manager());
+CREATE POLICY "Managers update templates"
+  ON templates FOR UPDATE USING (is_manager());
+
+-- AI SESSIONS
+CREATE POLICY "Employees create ai sessions"
+  ON ai_sessions FOR INSERT WITH CHECK (is_employee());
+CREATE POLICY "Managers read ai sessions"
+  ON ai_sessions FOR SELECT USING (is_manager());
+
+-- NOTIFICATIONS
+CREATE POLICY "Users manage own notifications"
+  ON notifications FOR ALL USING (user_id = auth.uid());
+
+-- SYSTEM SETTINGS
+CREATE POLICY "Employees read settings"
+  ON system_settings FOR SELECT USING (is_employee());
+CREATE POLICY "Admin updates settings"
+  ON system_settings FOR UPDATE USING (is_admin());
+```
+
+---
+
+## SUPABASE AUTH SETUP (`src/lib/auth.ts`)
+
+```typescript
+import { supabase } from './supabase';
+import type { AppUser } from '../types';
+
+// Sign in
+export async function signIn(email: string, password: string) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  // Update last login
+  await supabase.from('profiles')
+    .update({ last_login_at: new Date().toISOString() })
+    .eq('id', data.user.id);
+  return data;
+}
+
+// Sign out
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+// Password reset
+export async function resetPassword(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  if (error) throw error;
+}
+
+// Get current user profile
+export async function getMyProfile(): Promise<AppUser | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+  return data;
+}
+
+// Admin creates new user (use Supabase Admin SDK in edge function for production)
+export async function createUser(params: {
+  email: string;
+  password: string;
+  displayName: string;
+  role: string;
+  phoneNumber?: string;
+}) {
+  // Step 1: Create auth user
+  const { data, error } = await supabase.auth.signUp({
+    email: params.email,
+    password: params.password,
+  });
+  if (error) throw error;
+  const uid = data.user!.id;
+  // Step 2: Insert profile
+  const { error: profileError } = await supabase.from('profiles').insert({
+    id: uid,
+    email: params.email,
+    display_name: params.displayName,
+    role: params.role,
+    phone_number: params.phoneNumber ?? null,
+  });
+  if (profileError) throw profileError;
+  return uid;
+}
+
+// Auth state observer
+export function onAuthChange(callback: Parameters<typeof supabase.auth.onAuthStateChange>[0]) {
+  return supabase.auth.onAuthStateChange(callback);
+}
+```
+
+---
+
+## SERVICE LAYER (`src/services/`)
+
+### `candidateService.ts`
+```typescript
+import { supabase } from '../lib/supabase';
+import type { Candidate } from '../types';
+
+export const candidateService = {
+  async getAll() {
+    const { data, error } = await supabase
+      .from('candidates').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return data as Candidate[];
+  },
+
+  async getById(id: string) {
+    const { data, error } = await supabase
+      .from('candidates').select('*').eq('id', id).single();
+    if (error) throw error;
+    return data as Candidate;
+  },
+
+  async getByAssignee(uid: string) {
+    const { data, error } = await supabase
+      .from('candidates').select('*').eq('primary_assignee_id', uid);
+    if (error) throw error;
+    return data as Candidate[];
+  },
+
+  async create(candidate: Partial<Candidate>) {
+    const { data, error } = await supabase
+      .from('candidates').insert(candidate).select().single();
+    if (error) throw error;
+    return data as Candidate;
+  },
+
+  async update(id: string, updates: Partial<Candidate>) {
+    const { data, error } = await supabase
+      .from('candidates').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return data as Candidate;
+  },
+
+  async addNote(candidateId: string, content: string, authorId: string, authorName: string) {
+    const { error } = await supabase.from('candidate_notes').insert({
+      candidate_id: candidateId, content, author_id: authorId, author_name: authorName,
+    });
+    if (error) throw error;
+  },
+
+  async getNotes(candidateId: string) {
+    const { data, error } = await supabase
+      .from('candidate_notes').select('*')
+      .eq('candidate_id', candidateId).order('created_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+};
+```
+
+### `applicationService.ts`
+```typescript
+import { supabase } from '../lib/supabase';
+import type { Application } from '../types';
+
+export const applicationService = {
+  async create(app: Partial<Application>) {
+    const { data, error } = await supabase
+      .from('applications').insert(app).select().single();
+    if (error) throw error;
+    return data as Application;
+  },
+
+  async getByCandidate(candidateId: string) {
+    const { data, error } = await supabase
+      .from('applications').select('*, application_status_history(*), application_messages(*)')
+      .eq('candidate_id', candidateId).order('applied_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  async getByEmployee(uid: string) {
+    const { data, error } = await supabase
+      .from('applications').select('*')
+      .eq('applied_by', uid).order('applied_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  async updateStatus(id: string, status: string, changedBy: string, changedByName: string, note?: string) {
+    const { error } = await supabase.from('applications').update({
+      status, last_activity_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) throw error;
+    // History is auto-logged by DB trigger
+  },
+
+  async checkDuplicate(candidateId: string, company: string, jobTitle: string) {
+    const { data } = await supabase.from('applications')
+      .select('id').eq('candidate_id', candidateId)
+      .eq('company', company).eq('job_title', jobTitle).limit(1);
+    return (data?.length ?? 0) > 0;
+  },
+
+  async getThisWeek(candidateId?: string) {
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    let q = supabase.from('applications').select('*')
+      .gte('applied_at', weekAgo.toISOString());
+    if (candidateId) q = q.eq('candidate_id', candidateId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data;
+  },
+
+  async flag(id: string, reason: string) {
+    const { error } = await supabase.from('applications')
+      .update({ flagged: true, flag_reason: reason }).eq('id', id);
+    if (error) throw error;
+  },
+};
+```
+
+### `resumeService.ts`
+```typescript
+import { supabase } from '../lib/supabase';
+
+export const resumeService = {
+  async getByCandidate(candidateId: string) {
+    const { data, error } = await supabase.from('resumes').select('*')
+      .eq('candidate_id', candidateId).order('created_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  async getBaseResume(candidateId: string) {
+    const { data } = await supabase.from('resumes').select('*')
+      .eq('candidate_id', candidateId).eq('type', 'base').eq('is_active', true).single();
+    return data;
+  },
+
+  async create(resume: Record<string, any>) {
+    const { data, error } = await supabase.from('resumes').insert(resume).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  async update(id: string, updates: Record<string, any>) {
+    const { error } = await supabase.from('resumes').update(updates).eq('id', id);
+    if (error) throw error;
+  },
+
+  async uploadFile(candidateId: string, resumeId: string, file: File, type: 'docx' | 'pdf') {
+    const path = `resumes/${candidateId}/${resumeId}.${type}`;
+    const { error: uploadError } = await supabase.storage.from('resumes').upload(path, file, { upsert: true });
+    if (uploadError) throw uploadError;
+    const { data } = supabase.storage.from('resumes').getPublicUrl(path);
+    await supabase.from('resumes').update({ [`${type}_file_url`]: data.publicUrl }).eq('id', resumeId);
+    return data.publicUrl;
+  },
+};
+```
+
+### `recruiterMessageService.ts`
+```typescript
+import { supabase } from '../lib/supabase';
+
+export const recruiterMessageService = {
+  async create(msg: Record<string, any>) {
+    const { data, error } = await supabase.from('recruiter_messages').insert(msg).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  async getByCandidate(candidateId: string) {
+    const { data, error } = await supabase.from('recruiter_messages').select('*')
+      .eq('candidate_id', candidateId).order('received_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  async getUnread(assignedTo?: string) {
+    let q = supabase.from('recruiter_messages').select('*').eq('status', 'unread');
+    if (assignedTo) q = q.eq('assigned_to', assignedTo);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data;
+  },
+
+  async markReplied(id: string, repliedBy: string, reply: string) {
+    const { error } = await supabase.from('recruiter_messages').update({
+      status: 'replied', replied_at: new Date().toISOString(), replied_by: repliedBy, actual_reply: reply,
+    }).eq('id', id);
+    if (error) throw error;
+  },
+};
+```
+
+### `weeklyReportService.ts`
+```typescript
+import { supabase } from '../lib/supabase';
+import { applicationService } from './applicationService';
+import { recruiterMessageService } from './recruiterMessageService';
+
+export const weeklyReportService = {
+  async generate(candidateId: string, candidateName: string, employeeId: string, managerId: string, aiNarrative?: string) {
+    const apps = await applicationService.getThisWeek(candidateId);
+    const unread = await recruiterMessageService.getUnread();
+    const candUnread = unread.filter((m: any) => m.candidate_id === candidateId);
+    const replied = apps.filter((a: any) =>
+      ['recruiter_replied','phone_screen','interview_scheduled','interview_done','final_round','offer'].includes(a.status)
+    );
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay() + 1);
+
+    const { data, error } = await supabase.from('weekly_reports').insert({
+      candidate_id: candidateId,
+      candidate_name: candidateName,
+      week_start_date: weekStart.toISOString().split('T')[0],
+      week_end_date: now.toISOString().split('T')[0],
+      week_number: Math.ceil((now.getTime() - new Date(now.getFullYear(),0,1).getTime()) / 604800000),
+      year: now.getFullYear(),
+      applications_submitted: apps.length,
+      recruiter_replies: replied.length,
+      interviews_scheduled: apps.filter((a: any) => ['interview_scheduled','interview_done','final_round'].includes(a.status)).length,
+      offers_received: apps.filter((a: any) => a.status === 'offer').length,
+      resumes_tailored: apps.filter((a: any) => a.quality_resume_tailored).length,
+      pending_messages: candUnread.length,
+      response_rate: apps.length > 0 ? Math.round(replied.length / apps.length * 100) : 0,
+      top_companies: [...new Set(apps.map((a: any) => a.company))].slice(0, 5),
+      top_roles: [...new Set(apps.map((a: any) => a.job_title))].slice(0, 5),
+      ai_narrative: aiNarrative ?? '',
+      employee_id: employeeId,
+      manager_id: managerId,
+    }).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  async getByCandidate(candidateId: string) {
+    const { data, error } = await supabase.from('weekly_reports').select('*')
+      .eq('candidate_id', candidateId).order('week_start_date', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  async markSent(id: string, emailedTo: string) {
+    const { error } = await supabase.from('weekly_reports').update({
+      sent_to_client: true, sent_at: new Date().toISOString(), emailed_to: emailedTo,
+    }).eq('id', id);
+    if (error) throw error;
+  },
+};
+```
+
+---
+
+## AI INTEGRATION (`src/lib/ai/index.ts`)
+
+```typescript
+const PROVIDER = import.meta.env.VITE_AI_PROVIDER ?? 'gemini';
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_KEY}`;
+
+async function gemini(prompt: string, system?: string): Promise<string> {
+  const body: any = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+  };
+  if (system) body.system_instruction = { parts: [{ text: system }] };
+  const res = await fetch(GEMINI_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
+  const d = await res.json();
+  return d.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+// OpenAI — DISABLED (set VITE_AI_PROVIDER=openai to activate)
+async function openai(_prompt: string): Promise<string> {
+  throw new Error('OpenAI not active.');
+  /* const res = await fetch('https://api.openai.com/v1/chat/completions', { ... }); */
+}
+
+// Claude — DISABLED (set VITE_AI_PROVIDER=anthropic to activate)
+async function claude(_prompt: string): Promise<string> {
+  throw new Error('Claude not active.');
+  /* const res = await fetch('https://api.anthropic.com/v1/messages', { ... }); */
+}
+
+export async function callAI(prompt: string, system?: string): Promise<string> {
+  switch (PROVIDER) {
+    case 'openai':    return openai(prompt);
+    case 'anthropic': return claude(prompt);
+    default:          return gemini(prompt, system);
+  }
+}
+
+export async function aiTailorResume(resumeText: string, jd: string, name: string) {
+  const raw = await callAI(`You are an ATS expert for data roles. Return ONLY valid JSON, no markdown.
+Candidate: ${name}
+Resume: ${resumeText}
+Job Description: ${jd}
+Return: { matchScoreBefore, matchScoreAfter, missingKeywords, addedKeywords,
+suggestedTitle, optimizedSummary, optimizedSkills, optimizedBullets: { [role]: string[] },
+atsWarnings, overallFeedback }`);
+  return JSON.parse(raw.replace(/```json|```/g, '').trim());
+}
+
+export async function aiParseJD(jd: string) {
+  const raw = await callAI(`Extract from this job description. Return ONLY valid JSON:
+{ jobTitle, company, location, workMode, requiredSkills, preferredSkills,
+yearsOfExperience, workAuthorization, salaryRange, jobType, keywords, summary }
+JD: ${jd}`);
+  return JSON.parse(raw.replace(/```json|```/g, '').trim());
+}
+
+export async function aiRecruiterReply(message: string, name: string, role: string, auth: string) {
+  return callAI(`Write a professional reply to this recruiter message.
+Candidate: ${name} | Target Role: ${role} | Work Auth: ${auth}
+Recruiter said: "${message}"
+Reply only: professional, concise, end with a clear next-step ask.`);
+}
+
+export async function aiWeeklyNarrative(name: string, metrics: object, companies: string[]) {
+  return callAI(`Write a 3-paragraph weekly job search report for ${name}.
+Metrics: ${JSON.stringify(metrics)}. Top companies: ${companies.join(', ')}.
+Para 1: accomplishments. Para 2: traction. Para 3: next week. Under 200 words.`);
+}
+```
+
+---
+
+## QUALITY SCORE UTILITY (`src/lib/utils/qualityScore.ts`)
+
+```typescript
+export function computeQualityScore(checks: {
+  quality_resume_tailored: boolean;
+  quality_location_verified: boolean;
+  quality_salary_verified: boolean;
+  quality_auth_verified: boolean;
+  quality_duplicate_checked: boolean;
+  quality_notes_added: boolean;
+}): number {
+  const weights = {
+    quality_resume_tailored:  30,
+    quality_location_verified: 20,
+    quality_salary_verified:   15,
+    quality_auth_verified:     15,
+    quality_duplicate_checked: 10,
+    quality_notes_added:       10,
+  };
+  return Object.entries(weights).reduce((score, [key, weight]) =>
+    score + ((checks as any)[key] ? weight : 0), 0);
+}
+```
+
+---
+
+## ENVIRONMENT VARIABLES (`.env`)
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+
+VITE_AI_PROVIDER=gemini
+VITE_GEMINI_API_KEY=your-gemini-key
+
+# Configured but inactive
+VITE_OPENAI_API_KEY=
+VITE_ANTHROPIC_API_KEY=
+
+VITE_APP_NAME=Datanomics Job Search OS
+```
+
+---
+
+## BUILD ORDER FOR REPLIT AI
+
+Follow this exact order. Complete each step fully before moving to the next.
+
+1. **Install packages**: `npm install @supabase/supabase-js zustand react-router-dom react-hook-form zod recharts lucide-react react-hot-toast date-fns docx`
+2. **Run all SQL** in Supabase SQL Editor — enums first, then tables, then triggers, then RLS
+3. **Create Supabase Storage bucket** named `resumes` — set to public
+4. **Build `src/lib/supabase.ts`** and `src/lib/auth.ts`
+5. **Build `src/lib/ai/index.ts`** — Gemini active, others stubbed
+6. **Build all `src/services/`** files
+7. **Build `src/stores/authStore.ts`** with Zustand + Supabase session sync
+8. **Wire login page** to `signIn()` — test auth before touching any other page
+9. **Connect existing pages** to real service calls — no mock data anywhere
+10. **DO NOT redesign any existing UI** — only connect data. Style only if a page has no data connected yet.
+
+---
+
+*Datanomics Job Search OS — Supabase Edition v1.0 | Job Placement Operations Only*
