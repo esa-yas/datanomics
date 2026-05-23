@@ -46,7 +46,7 @@ export const templateService = {
     }
   },
 
-  async applyTemplate(template: Template, variables: Record<string, string>): string {
+  applyTemplate(template: Template, variables: Record<string, string>): string {
     let body = template.body;
     let subject = template.subject ?? '';
     for (const [key, value] of Object.entries(variables)) {
