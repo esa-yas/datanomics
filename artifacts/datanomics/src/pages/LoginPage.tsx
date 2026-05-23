@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { signIn } from "@/lib/auth";
-import { useLocation } from "wouter";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,23 +10,19 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [, setLocation] = useLocation();
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error("Please enter email and password");
       return;
     }
-    
     setLoading(true);
     try {
       await signIn(email, password);
-      toast.success("Successfully logged in");
-      setLocation("/");
+      // Don't navigate manually — authStore.onAuthStateChange will update
+      // the user state and App.tsx will automatically render the dashboard
     } catch (error: any) {
       toast.error(error.message || "Failed to sign in");
-    } finally {
       setLoading(false);
     }
   };
