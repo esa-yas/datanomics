@@ -4,10 +4,12 @@ import type { Profile, UserRole } from '../types';
 export async function signIn(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
-  await supabase
+  // Fire-and-forget — don't block login on profile update errors
+  supabase
     .from('profiles')
     .update({ last_login_at: new Date().toISOString() })
-    .eq('id', data.user.id);
+    .eq('id', data.user.id)
+    .then(() => {});
   return data;
 }
 
@@ -40,16 +42,18 @@ export async function createUser(params: {
   const { data, error } = await supabase.auth.signUp({
     email: params.email,
     password: params.password,
+    options: { data: { display_name: params.displayName, role: params.role } },
   });
   if (error) throw error;
   const uid = data.user!.id;
-  const { error: profileError } = await supabase.from('profiles').insert({
+  // Upsert in case trigger already created the row
+  const { error: profileError } = await supabase.from('profiles').upsert({
     id: uid,
     email: params.email,
     display_name: params.displayName,
     role: params.role,
     phone_number: params.phoneNumber ?? null,
-  });
+  }, { onConflict: 'id' });
   if (profileError) throw profileError;
   return uid;
 }
