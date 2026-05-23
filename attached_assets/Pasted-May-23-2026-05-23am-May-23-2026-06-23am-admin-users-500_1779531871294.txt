@@ -1,0 +1,151 @@
+May 23, 2026, 05:23am
+May 23, 2026, 06:23am
+/admin/users | 500: Database error creating new user
+/token | request completed
+/token | 400: Invalid login credentials
+/invite | 500: Database error saving new user
+/invite | request completed
+/invite | 500: Database error saving new user
+/invite | request completed
+/invite | request completed
+/invite | 500: Database error saving new user
+/token | 400: Invalid login credentials
+/token | request completed
+/token | 400: Invalid login credentials
+/token | request completed
+/token | request completed
+/token | 400: Invalid login credentials
+/token | 400: Invalid login credentials
+/token | request completed
+/invite | request completed
+/invite | 500: Database error saving new user
+/admin/users | 500: Database error creating new user
+/admin/users | request completed
+/admin/users | 500: Database error creating new user
+/admin/users | request completed
+Details
+Raw
+
+
+
+id
+ebd6e09d-bd33-4446-97a4-989289108ed6
+
+timestamp
+23 May 26 06:23:06
+event_message
+{"component":"api","error":"failed to close prepared statement: ERROR: current transaction is aborted, commands ignored until end of transaction block (SQLSTATE 25P02): ERROR: relation \"profiles\" does not exist (SQLSTATE 42P01)","level":"error","method":"POST","msg":"500: Database error creating new user","path":"/admin/users","referer":"http://localhost:3000","remote_addr":"54.77.10.201","request_id":"019e545c-277e-7d2e-80d6-b2bcb47749e7","time":"2026-05-23T10:23:06Z"}
+metadata
+[
+  {
+    "host": "db-pigtcpmfhisewxpejuae",
+    "limit_conn_max_idle_time": null,
+    "component": "api",
+    "_SYSTEMD_CGROUP": null,
+    "grant_type": null,
+    "request_id": "019e545c-277e-7d2e-80d6-b2bcb47749e7",
+    "mail_from": null,
+    "message": null,
+    "_SOURCE_REALTIME_TIMESTAMP": null,
+    "PRIORITY": null,
+    "_AUDIT_LOGINUID": null,
+    "signal_enabled": null,
+    "panic": null,
+    "metering": null,
+    "UNIT": null,
+    "event": null,
+    "SYSLOG_FACILITY": null,
+    "msg": "500: Database error creating new user",
+    "mail_type": null,
+    "grace_period_duration": null,
+    "EXECUTABLE": null,
+    "config_conn_max_lifetime": null,
+    "user_id": null,
+    "_CMDLINE": null,
+    "action": null,
+    "notify_enabled": null,
+    "poller_interval": null,
+    "auth_event": [],
+    "signal_number": null,
+    "level": "error",
+    "_PID": null,
+    "path": "/admin/users",
+    "duration": null,
+    "_COMM": null,
+    "config_max_pool_size": null,
+    "sso_provider_id": null,
+    "header": null,
+    "_MACHINE_ID": null,
+    "web3_domain": null,
+    "login_method": null,
+    "limit_strategy": null,
+    "_STREAM_ID": null,
+    "long_wait_duration_samples": null,
+    "config_conn_max_idle_time": null,
+    "source_type": null,
+    "_LINE_BREAK": null,
+    "web3_address": null,
+    "_EXE": null,
+    "_AUDIT_SESSION": null,
+    "_TRANSPORT": null,
+    "x_forwarded_proto": null,
+    "time": null,
+    "mail_to": null,
+    "_GID": null,
+    "stack": null,
+    "x_forwarded_host": null,
+    "limit_conn_max_lifetime": null,
+    "saml_entity_id": null,
+    "worker_type": null,
+    "poller_enabled": null,
+    "status": null,
+    "_UID": null,
+    "valid_until": null,
+    "web3_uri": null,
+    "method": "POST",
+    "limit_max_idle_conns": null,
+    "CODE_FILE": null,
+    "remote_addr": "54.77.10.201",
+    "provider": null,
+    "_SYSTEMD_UNIT": null,
+    "issuer": null,
+    "error": "failed to close prepared statement: ERROR: current transaction is aborted, commands ignored until end of transaction block (SQLSTATE 25P02): ERROR: relation \"profiles\" does not exist (SQLSTATE 42P01)",
+    "limit_max_open_conns": null,
+    "client_id": null,
+    "config_conn_percentage": null,
+    "MESSAGE_ID": null,
+    "url": null,
+    "referer": "http://localhost:3000",
+    "_SYSTEMD_INVOCATION_ID": null,
+    "CODE_FUNC": null,
+    "_BOOT_ID": null,
+    "INVOCATION_ID": null,
+    "__MONOTONIC_TIMESTAMP": null,
+    "web3_chain": null,
+    "timestamp": null,
+    "__REALTIME_TIMESTAMP": null,
+    "over_2_waiting_samples": null,
+    "immediate_login_after_signup": null,
+    "CODE_LINE": null,
+    "_SYSTEMD_SLICE": null,
+    "count": null,
+    "instance_id": null,
+    "args": [],
+    "server_max_conns": null,
+    "SYSLOG_IDENTIFIER": null,
+    "config_max_idle_pool_size": null,
+    "metadata": [],
+    "auth_audit_event": [],
+    "_CAP_EFFECTIVE": null,
+    "factor_id": null,
+    "_SELINUX_CONTEXT": null,
+    "expires_in": null,
+    "version": null,
+    "project": null
+  }
+]
+
+Collapse
+
+Load older
+Showing 28 results
