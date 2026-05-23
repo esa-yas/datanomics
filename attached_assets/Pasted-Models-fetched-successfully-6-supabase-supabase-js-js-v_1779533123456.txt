@@ -1,0 +1,227 @@
+Models fetched successfully: 6
+@supabase_supabase-js.js?v=f7609510:20327  GET https://pigtcpmfhisewxpejuae.supabase.co/rest/v1/profiles?select=*&id=eq.5483a496-3341-4a3c-8f1f-6c9fb11b8b5a 500 (Internal Server Error)
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20327
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20352
+await in (anonymous)
+executeWithRetry @ @supabase_supabase-js.js?v=f7609510:592
+then @ @supabase_supabase-js.js?v=f7609510:621Understand this error
+@supabase_supabase-js.js?v=f7609510:20327  POST https://pigtcpmfhisewxpejuae.supabase.co/rest/v1/profiles?on_conflict=id&select=* 500 (Internal Server Error)
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20327
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20352
+await in (anonymous)
+executeWithRetry @ @supabase_supabase-js.js?v=f7609510:592
+then @ @supabase_supabase-js.js?v=f7609510:621Understand this error
+@supabase_supabase-js.js?v=f7609510:20327  GET https://pigtcpmfhisewxpejuae.supabase.co/rest/v1/profiles?select=*&id=eq.5483a496-3341-4a3c-8f1f-6c9fb11b8b5a 500 (Internal Server Error)
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20327
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20352
+await in (anonymous)
+executeWithRetry @ @supabase_supabase-js.js?v=f7609510:592
+then @ @supabase_supabase-js.js?v=f7609510:621Understand this error
+@supabase_supabase-js.js?v=f7609510:20327  POST https://pigtcpmfhisewxpejuae.supabase.co/rest/v1/profiles?on_conflict=id&select=* 500 (Internal Server Error)
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20327
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20352
+await in (anonymous)
+executeWithRetry @ @supabase_supabase-js.js?v=f7609510:592
+then @ @supabase_supabase-js.js?v=f7609510:621Understand this error
+@supabase_supabase-js.js?v=f7609510:20327  GET https://pigtcpmfhisewxpejuae.supabase.co/rest/v1/candidates?select=*&order=created_at.desc 500 (Internal Server Error)
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20327
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20352
+await in (anonymous)
+executeWithRetry @ @supabase_supabase-js.js?v=f7609510:592
+then @ @supabase_supabase-js.js?v=f7609510:621Understand this error
+DashboardPage.tsx:58 {code: '42P17', details: null, hint: null, message: 'infinite recursion detected in policy for relation "profiles"'}code: "42P17"details: nullhint: nullmessage: "infinite recursion detected in policy for relation \"profiles\""[[Prototype]]: Object
+(anonymous) @ DashboardPage.tsx:58
+await in (anonymous)
+(anonymous) @ DashboardPage.tsx:63
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17478
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+commitHookEffectListMount @ react-dom_client.js?v=f7609510:8460
+commitHookPassiveMountEffects @ react-dom_client.js?v=f7609510:8518
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9887
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9899
+flushPassiveEffects @ react-dom_client.js?v=f7609510:11302
+flushPendingEffects @ react-dom_client.js?v=f7609510:11276
+flushSpawnedWork @ react-dom_client.js?v=f7609510:11250
+commitRoot @ react-dom_client.js?v=f7609510:11081
+commitRootWhenReady @ react-dom_client.js?v=f7609510:10512
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10457
+performSyncWorkOnRoot @ react-dom_client.js?v=f7609510:11635
+flushSyncWorkAcrossRoots_impl @ react-dom_client.js?v=f7609510:11536
+processRootScheduleInMicrotask @ react-dom_client.js?v=f7609510:11558
+(anonymous) @ react-dom_client.js?v=f7609510:11649
+<DashboardPage>
+exports.createElement @ chunk-KC53NVYV.js?v=f7609510:773
+h_route @ wouter.js?v=f7609510:277
+Route @ wouter.js?v=f7609510:312
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17424
+renderWithHooks @ react-dom_client.js?v=f7609510:4206
+updateFunctionComponent @ react-dom_client.js?v=f7609510:6619
+beginWork @ react-dom_client.js?v=f7609510:7654
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+performUnitOfWork @ react-dom_client.js?v=f7609510:10868
+workLoopSync @ react-dom_client.js?v=f7609510:10728
+renderRootSync @ react-dom_client.js?v=f7609510:10711
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10330
+performSyncWorkOnRoot @ react-dom_client.js?v=f7609510:11635
+flushSyncWorkAcrossRoots_impl @ react-dom_client.js?v=f7609510:11536
+processRootScheduleInMicrotask @ react-dom_client.js?v=f7609510:11558
+(anonymous) @ react-dom_client.js?v=f7609510:11649
+<Route>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=f7609510:250
+Router @ App.tsx:55
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17424
+renderWithHooks @ react-dom_client.js?v=f7609510:4206
+updateFunctionComponent @ react-dom_client.js?v=f7609510:6619
+beginWork @ react-dom_client.js?v=f7609510:7654
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+performUnitOfWork @ react-dom_client.js?v=f7609510:10868
+workLoopSync @ react-dom_client.js?v=f7609510:10728
+renderRootSync @ react-dom_client.js?v=f7609510:10711
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10330
+performSyncWorkOnRoot @ react-dom_client.js?v=f7609510:11635
+flushSyncWorkAcrossRoots_impl @ react-dom_client.js?v=f7609510:11536
+processRootScheduleInMicrotask @ react-dom_client.js?v=f7609510:11558
+(anonymous) @ react-dom_client.js?v=f7609510:11649
+<Router>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=f7609510:250
+App @ App.tsx:84
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17424
+renderWithHooks @ react-dom_client.js?v=f7609510:4206
+updateFunctionComponent @ react-dom_client.js?v=f7609510:6619
+beginWork @ react-dom_client.js?v=f7609510:7654
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+performUnitOfWork @ react-dom_client.js?v=f7609510:10868
+workLoopSync @ react-dom_client.js?v=f7609510:10728
+renderRootSync @ react-dom_client.js?v=f7609510:10711
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10330
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=f7609510:11623
+performWorkUntilDeadline @ react-dom_client.js?v=f7609510:36
+<App>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=f7609510:250
+(anonymous) @ main.tsx:5Understand this error
+@supabase_supabase-js.js?v=f7609510:20327  GET https://pigtcpmfhisewxpejuae.supabase.co/rest/v1/candidates?select=*&order=created_at.desc 500 (Internal Server Error)
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20327
+(anonymous) @ @supabase_supabase-js.js?v=f7609510:20352
+await in (anonymous)
+executeWithRetry @ @supabase_supabase-js.js?v=f7609510:592
+then @ @supabase_supabase-js.js?v=f7609510:621Understand this error
+DashboardPage.tsx:58 {code: '42P17', details: null, hint: null, message: 'infinite recursion detected in policy for relation "profiles"'}code: "42P17"details: nullhint: nullmessage: "infinite recursion detected in policy for relation \"profiles\""[[Prototype]]: Object
+(anonymous) @ DashboardPage.tsx:58
+await in (anonymous)
+(anonymous) @ DashboardPage.tsx:63
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17478
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+commitHookEffectListMount @ react-dom_client.js?v=f7609510:8460
+commitHookPassiveMountEffects @ react-dom_client.js?v=f7609510:8518
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9887
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9881
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=f7609510:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=f7609510:9899
+flushPassiveEffects @ react-dom_client.js?v=f7609510:11302
+flushPendingEffects @ react-dom_client.js?v=f7609510:11276
+flushSpawnedWork @ react-dom_client.js?v=f7609510:11250
+commitRoot @ react-dom_client.js?v=f7609510:11081
+commitRootWhenReady @ react-dom_client.js?v=f7609510:10512
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10457
+performSyncWorkOnRoot @ react-dom_client.js?v=f7609510:11635
+flushSyncWorkAcrossRoots_impl @ react-dom_client.js?v=f7609510:11536
+processRootScheduleInMicrotask @ react-dom_client.js?v=f7609510:11558
+(anonymous) @ react-dom_client.js?v=f7609510:11649
+<DashboardPage>
+exports.createElement @ chunk-KC53NVYV.js?v=f7609510:773
+h_route @ wouter.js?v=f7609510:277
+Route @ wouter.js?v=f7609510:312
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17424
+renderWithHooks @ react-dom_client.js?v=f7609510:4206
+updateFunctionComponent @ react-dom_client.js?v=f7609510:6619
+beginWork @ react-dom_client.js?v=f7609510:7654
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+performUnitOfWork @ react-dom_client.js?v=f7609510:10868
+workLoopSync @ react-dom_client.js?v=f7609510:10728
+renderRootSync @ react-dom_client.js?v=f7609510:10711
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10330
+performSyncWorkOnRoot @ react-dom_client.js?v=f7609510:11635
+flushSyncWorkAcrossRoots_impl @ react-dom_client.js?v=f7609510:11536
+processRootScheduleInMicrotask @ react-dom_client.js?v=f7609510:11558
+(anonymous) @ react-dom_client.js?v=f7609510:11649
+<Route>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=f7609510:250
+Router @ App.tsx:55
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17424
+renderWithHooks @ react-dom_client.js?v=f7609510:4206
+updateFunctionComponent @ react-dom_client.js?v=f7609510:6619
+beginWork @ react-dom_client.js?v=f7609510:7654
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+performUnitOfWork @ react-dom_client.js?v=f7609510:10868
+workLoopSync @ react-dom_client.js?v=f7609510:10728
+renderRootSync @ react-dom_client.js?v=f7609510:10711
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10330
+performSyncWorkOnRoot @ react-dom_client.js?v=f7609510:11635
+flushSyncWorkAcrossRoots_impl @ react-dom_client.js?v=f7609510:11536
+processRootScheduleInMicrotask @ react-dom_client.js?v=f7609510:11558
+(anonymous) @ react-dom_client.js?v=f7609510:11649
+<Router>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=f7609510:250
+App @ App.tsx:84
+react-stack-bottom-frame @ react-dom_client.js?v=f7609510:17424
+renderWithHooks @ react-dom_client.js?v=f7609510:4206
+updateFunctionComponent @ react-dom_client.js?v=f7609510:6619
+beginWork @ react-dom_client.js?v=f7609510:7654
+runWithFiberInDEV @ react-dom_client.js?v=f7609510:1485
+performUnitOfWork @ react-dom_client.js?v=f7609510:10868
+workLoopSync @ react-dom_client.js?v=f7609510:10728
+renderRootSync @ react-dom_client.js?v=f7609510:10711
+performWorkOnRoot @ react-dom_client.js?v=f7609510:10330
+performWorkOnRootViaSchedulerTask @ react-dom_client.js?v=f7609510:11623
+performWorkUntilDeadline @ react-dom_client.js?v=f7609510:36
+<App>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=f7609510:250
+(anonymous) @ main.tsx:5Understand this error
