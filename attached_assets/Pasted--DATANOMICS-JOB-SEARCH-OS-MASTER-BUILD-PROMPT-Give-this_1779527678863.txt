@@ -1,0 +1,1106 @@
+# 🚀 DATANOMICS JOB SEARCH OS — MASTER BUILD PROMPT
+> Give this entire prompt to your AI coding assistant (Cursor, Windsurf, Claude Code, etc.)
+
+---
+
+## PROJECT IDENTITY
+
+You are building **Datanomics Job Search OS** — an internal operations platform for a professional data career placement company called **Datanomics Technology**. This is a full-stack web application with role-based access, AI-powered resume tailoring, applicant tracking, employee performance dashboards, and a client-facing portal.
+
+This is a **production-grade** system. Build every feature as if real clients, real employees, and a technical CEO (ex-Google/Amazon/Meta Data Engineer) will review it daily.
+
+---
+
+## TECH STACK
+
+| Layer | Technology |
+|---|---|
+| Frontend | React (Vite) + TypeScript |
+| Styling | Tailwind CSS + custom CSS variables |
+| Backend / DB | Firebase (Firestore + Auth + Storage + Functions) |
+| AI (Primary) | Google Gemini API (`gemini-1.5-pro`) |
+| AI (Secondary - configure but disable) | OpenAI GPT-4o API |
+| AI (Tertiary - configure but disable) | Anthropic Claude API |
+| State Management | Zustand |
+| Routing | React Router v6 |
+| Forms | React Hook Form + Zod validation |
+| Charts / Analytics | Recharts |
+| Icons | Lucide React |
+| Notifications | React Hot Toast |
+| File Export | docx.js (for DOCX resume download) |
+| Date Handling | date-fns |
+
+---
+
+## BRANDING & DESIGN SYSTEM
+
+### Brand Colors (extract from Datanomics logo)
+```css
+:root {
+  /* Primary Brand */
+  --color-navy:        #1B2D4F;   /* Deep navy - main brand dark */
+  --color-navy-dark:   #0F1C33;   /* Darker navy - sidebar, headers */
+  --color-navy-light:  #243660;   /* Lighter navy - card backgrounds */
+
+  /* Accent Colors from logo */
+  --color-teal:        #00C896;   /* Bright teal/green - primary CTA, success */
+  --color-teal-light:  #00E5AC;   /* Hover state for teal */
+  --color-blue:        #0099E6;   /* Bright blue - secondary accent, links */
+  --color-blue-light:  #33AAEE;   /* Hover state for blue */
+
+  /* Neutrals */
+  --color-white:       #FFFFFF;
+  --color-gray-50:     #F8FAFC;
+  --color-gray-100:    #F1F5F9;
+  --color-gray-200:    #E2E8F0;
+  --color-gray-400:    #94A3B8;
+  --color-gray-600:    #475569;
+  --color-gray-800:    #1E293B;
+
+  /* Semantic */
+  --color-success:     #00C896;
+  --color-warning:     #F59E0B;
+  --color-error:       #EF4444;
+  --color-info:        #0099E6;
+
+  /* Surfaces (dark mode first - this is a dark-primary app) */
+  --surface-bg:        #0F1C33;   /* App background */
+  --surface-card:      #1B2D4F;   /* Card background */
+  --surface-elevated:  #243660;   /* Elevated elements */
+  --surface-border:    rgba(255,255,255,0.08);
+
+  /* Typography */
+  --font-display:      'Plus Jakarta Sans', sans-serif;
+  --font-body:         'DM Sans', sans-serif;
+  --font-mono:         'JetBrains Mono', monospace;
+}
+```
+
+### Design Principles
+- **Dark-primary UI** — deep navy background, card surfaces, subtle borders
+- **Teal = action / success** (buttons, progress, active states)
+- **Blue = information / links** (badges, secondary actions, data)
+- **Geometric angular aesthetic** — mirrors the hexagonal logo shapes; use sharp card corners (border-radius: 8px), diagonal accent lines, geometric icon badges
+- **Modern data dashboard feel** — dense but clean, data-forward, professional
+- **Typography**: Use `Plus Jakarta Sans` for headings, `DM Sans` for body text (import from Google Fonts)
+- **No generic purple gradients, no white backgrounds** — this is a dark, navy-forward enterprise tool
+- **Micro-animations**: subtle fade-ins on page load, smooth sidebar transitions, hover lifts on cards (translateY -2px + shadow)
+- **Logo**: Always display the Datanomics Technology logo in the sidebar header. Use the uploaded logo image asset.
+
+---
+
+## FIREBASE SETUP
+
+### 1. Firebase Project Configuration
+```javascript
+// src/lib/firebase.ts
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import { getFunctions } from 'firebase/functions';
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const functions = getFunctions(app);
+```
+
+---
+
+## FIRESTORE DATABASE STRUCTURE & RELATIONS
+
+### Collections Overview
+```
+firestore/
+├── users/                    ← All authenticated users
+├── candidates/               ← Job seeker profiles (clients)
+├── applications/             ← Individual job applications
+├── resumes/                  ← Resume versions per candidate
+├── recruiterMessages/        ← Recruiter email/message tracking
+├── weeklyReports/            ← Auto-generated weekly summaries
+├── templates/                ← Message and reply templates
+├── aiSessions/               ← AI resume tailoring session logs
+└── systemSettings/           ← App config and role permissions
+```
+
+---
+
+### COLLECTION: `users`
+**Purpose:** All system users — managers, employees, and clients.
+
+```typescript
+interface User {
+  uid: string;                       // Firebase Auth UID (document ID)
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  role: 'admin' | 'manager' | 'team_lead' | 'job_search_assistant' |
+        'resume_specialist' | 'email_specialist' | 'client';
+  status: 'active' | 'inactive' | 'suspended';
+  assignedCandidates: string[];      // Array of candidate document IDs
+  phoneNumber?: string;
+  timezone: string;                  // e.g. "America/New_York"
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  lastLoginAt?: Timestamp;
+  createdBy: string;                 // UID of admin who created this user
+  // Performance tracking (for employees)
+  weeklyTargetApplications: number;  // default: 100
+  weeklyTargetReplies: number;       // default: 24hr SLA
+}
+```
+
+**Subcollections:**
+```
+users/{uid}/
+  └── notifications/            ← In-app notifications
+        {notifId}:
+          message: string
+          type: 'info' | 'warning' | 'success' | 'alert'
+          read: boolean
+          createdAt: Timestamp
+          link?: string
+```
+
+---
+
+### COLLECTION: `candidates`
+**Purpose:** Job seeker/client profiles. These are Datanomics's clients being placed.
+
+```typescript
+interface Candidate {
+  id: string;                        // Auto-generated Firestore ID
+  fullName: string;
+  email: string;                     // Their job search email
+  emailPassword?: string;            // Encrypted - store with caution
+  phone: string;
+  whatsapp?: string;
+  linkedinUrl?: string;
+  location: {
+    city: string;
+    state: string;
+    country: string;
+    preferredWorkMode: ('remote' | 'hybrid' | 'onsite')[];
+    willingToRelocate: boolean;
+    preferredStates: string[];        // e.g. ["VA", "MD", "DC", "TX"]
+  };
+  workAuthorization: 'USC' | 'GC' | 'H1B' | 'OPT' | 'CPT' | 'TN' | 'EAD' | 'Other';
+  targetRoles: string[];             // e.g. ["Data Analyst", "Power BI Developer"]
+  targetSalary: {
+    minRate: number;                 // Hourly or annual
+    rateType: 'hourly' | 'annual';
+    currency: 'USD';
+  };
+  skills: string[];                  // e.g. ["Power BI", "SQL", "Python", "Snowflake"]
+  experienceYears: number;
+  status: 'lead' | 'resume_in_progress' | 'profile_setup' |
+          'application_started' | 'active_search' | 'interview_stage' |
+          'offer_received' | 'placed' | 'paused' | 'dropped';
+  pipeline: {
+    totalApplications: number;       // Running count
+    totalReplies: number;
+    totalInterviews: number;
+    totalOffers: number;
+    lastApplicationDate?: Timestamp;
+    lastReplyDate?: Timestamp;
+    lastInterviewDate?: Timestamp;
+  };
+  assignedTeam: {
+    primaryAssignee: string;         // User UID
+    applicationSpecialist?: string;  // User UID
+    resumeSpecialist?: string;       // User UID
+    emailSpecialist?: string;        // User UID
+    managerId: string;               // User UID
+  };
+  batch?: string;                    // e.g. "Batch 17"
+  enrollmentDate: Timestamp;
+  placementDate?: Timestamp;
+  placedCompany?: string;
+  placedRole?: string;
+  placedSalary?: number;
+  revenueShare?: {                   // 13% income share tracking
+    percentage: number;              // 13
+    startDate: Timestamp;
+    endDate: Timestamp;
+    estimatedAnnualIncome: number;
+    paymentsReceived: number;
+    totalExpected: number;
+  };
+  notes: string;
+  tags: string[];                    // Custom tags
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;                 // UID
+  clientPortalEnabled: boolean;
+  clientPortalPassword?: string;     // Separate portal access
+}
+```
+
+**Subcollections:**
+```
+candidates/{candidateId}/
+  ├── notes/                    ← Team notes
+  │     {noteId}: { content, authorId, authorName, createdAt, pinned }
+  └── followUps/                ← Scheduled follow-up reminders
+        {followUpId}: { dueDate, description, assignedTo, completed, completedAt }
+```
+
+---
+
+### COLLECTION: `applications`
+**Purpose:** Every individual job application — the most important collection.
+
+```typescript
+interface Application {
+  id: string;
+  candidateId: string;               // → candidates/{id}
+  candidateName: string;             // Denormalized for queries
+  appliedBy: string;                 // User UID of employee who applied
+  appliedByName: string;             // Denormalized
+
+  // Job Details
+  jobTitle: string;
+  company: string;
+  location: {
+    city?: string;
+    state?: string;
+    workMode: 'remote' | 'hybrid' | 'onsite';
+  };
+  jobSource: 'linkedin' | 'dice' | 'indeed' | 'ziprecruiter' |
+             'glassdoor' | 'monster' | 'direct' | 'referral' | 'other';
+  jobUrl?: string;
+  jobDescription?: string;           // Full JD text (for AI processing)
+  jobId?: string;                    // External job ID from platform
+
+  // Compensation
+  payRate?: number;
+  payType?: 'hourly_w2' | 'hourly_c2c' | 'annual_salary';
+  currency: 'USD';
+
+  // Resume & Application
+  resumeVersionId?: string;          // → resumes/{id}
+  resumeVersionName?: string;        // e.g. "Power BI Tailored v3"
+  coverLetterUsed: boolean;
+  applicationFormAnswered: boolean;
+
+  // Status & Tracking
+  status: 'applied' | 'viewed' | 'recruiter_replied' | 'phone_screen' |
+          'interview_scheduled' | 'interview_done' | 'final_round' |
+          'offer' | 'rejected' | 'ghosted' | 'withdrawn';
+  statusHistory: {
+    status: string;
+    changedAt: Timestamp;
+    changedBy: string;
+    note?: string;
+  }[];
+
+  // Recruiter Info
+  recruiterName?: string;
+  recruiterEmail?: string;
+  recruiterPhone?: string;
+  recruiterLinkedIn?: string;
+  recruiterCompany?: string;         // Staffing agency if different from company
+
+  // Timeline
+  appliedAt: Timestamp;
+  firstReplyAt?: Timestamp;
+  lastActivityAt: Timestamp;
+  nextFollowUpDate?: Timestamp;
+  interviewDate?: Timestamp;
+  offerDate?: Timestamp;
+  offerAmount?: number;
+
+  // Quality & AI
+  aiMatchScore?: number;             // 0-100 from Gemini JD match
+  missingKeywords?: string[];
+  qualityChecks: {
+    resumeTailored: boolean;
+    locationVerified: boolean;
+    salaryVerified: boolean;
+    authorizationVerified: boolean;
+    duplicateChecked: boolean;
+    notesAdded: boolean;
+  };
+  qualityScore: number;              // 0-100 computed from checks
+
+  // Communication
+  messages: {
+    direction: 'inbound' | 'outbound';
+    content: string;
+    sentAt: Timestamp;
+    sentBy?: string;
+    channel: 'email' | 'linkedin' | 'phone' | 'portal';
+  }[];
+
+  notes: string;
+  flagged: boolean;                  // Manager flag for review
+  flagReason?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+```
+
+---
+
+### COLLECTION: `resumes`
+**Purpose:** All resume versions per candidate, including AI-tailored versions.
+
+```typescript
+interface Resume {
+  id: string;
+  candidateId: string;               // → candidates/{id}
+  versionName: string;               // e.g. "Power BI Developer - Tailored v3"
+  versionNumber: number;
+  type: 'base' | 'tailored' | 'draft';
+
+  // Content
+  title: string;                     // Professional title on resume
+  summary: string;
+  skills: string[];
+  experience: {
+    company: string;
+    title: string;
+    startDate: string;
+    endDate: string;
+    bullets: string[];
+  }[];
+  education: {
+    institution: string;
+    degree: string;
+    field: string;
+    year: string;
+  }[];
+  certifications: string[];
+
+  // Files
+  docxFileUrl?: string;              // Firebase Storage URL
+  pdfFileUrl?: string;
+  rawText?: string;                  // Plain text version for AI processing
+
+  // AI Metadata (if tailored)
+  tailoredFor?: {
+    jobTitle: string;
+    company: string;
+    applicationId?: string;          // → applications/{id}
+    jobDescriptionSnapshot: string;
+    matchScoreBefore: number;
+    matchScoreAfter: number;
+    addedKeywords: string[];
+    removedWeaknesses: string[];
+    aiModel: 'gemini' | 'gpt4o' | 'claude';
+    tailoredAt: Timestamp;
+  };
+
+  isActive: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;                 // UID
+}
+```
+
+---
+
+### COLLECTION: `recruiterMessages`
+**Purpose:** All inbound recruiter messages and outbound reply tracking.
+
+```typescript
+interface RecruiterMessage {
+  id: string;
+  candidateId: string;
+  applicationId?: string;            // Link to application if known
+
+  direction: 'inbound' | 'outbound';
+  channel: 'email' | 'linkedin' | 'phone';
+  subject?: string;
+  body: string;
+  from?: string;                     // Recruiter email/name
+  to?: string;
+
+  status: 'unread' | 'read' | 'replied' | 'ignored' | 'action_needed';
+  priority: 'high' | 'normal' | 'low';
+  repliedAt?: Timestamp;
+  repliedBy?: string;                // UID
+
+  aiGeneratedReply?: string;         // Gemini-generated reply text
+  actualReply?: string;              // Final reply that was sent
+
+  receivedAt: Timestamp;
+  createdAt: Timestamp;
+  assignedTo: string;                // UID of email specialist
+}
+```
+
+---
+
+### COLLECTION: `weeklyReports`
+**Purpose:** Auto-generated weekly progress reports per candidate.
+
+```typescript
+interface WeeklyReport {
+  id: string;
+  candidateId: string;
+  candidateName: string;
+  weekStartDate: Timestamp;
+  weekEndDate: Timestamp;
+  weekNumber: number;
+  year: number;
+
+  metrics: {
+    applicationsSubmitted: number;
+    recruiterReplies: number;
+    interviewsScheduled: number;
+    offersReceived: number;
+    resumesTailored: number;
+    followUpsSent: number;
+    pendingMessages: number;
+    responseRate: number;            // replies / applications * 100
+  };
+
+  topCompanies: string[];
+  topRoles: string[];
+  highlights: string[];
+  nextWeekFocus: string[];
+
+  generatedBy: 'auto' | 'manual';
+  aiSummary?: string;               // Gemini-written narrative summary
+  sentToClient: boolean;
+  sentAt?: Timestamp;
+  emailedTo?: string;               // Client's email
+
+  employeeId: string;               // Primary assignee UID
+  managerId: string;
+  createdAt: Timestamp;
+}
+```
+
+---
+
+### COLLECTION: `templates`
+**Purpose:** Message templates for recruiter replies, follow-ups, etc.
+
+```typescript
+interface Template {
+  id: string;
+  name: string;
+  category: 'recruiter_reply' | 'follow_up' | 'interview_availability' |
+            'salary_answer' | 'work_auth_answer' | 'relocation_answer' |
+            'rejection_followup' | 'application_form' | 'client_update';
+  subject?: string;
+  body: string;                      // Handlebars-style {{candidateName}} placeholders
+  variables: string[];               // List of placeholder vars
+  isGlobal: boolean;                 // Available to all employees
+  createdBy: string;
+  createdAt: Timestamp;
+  usageCount: number;
+}
+```
+
+---
+
+### COLLECTION: `aiSessions`
+**Purpose:** Log of all AI operations for audit, debugging, and performance.
+
+```typescript
+interface AISession {
+  id: string;
+  type: 'resume_tailor' | 'jd_parse' | 'recruiter_reply' | 'weekly_summary' |
+        'match_score' | 'skill_gap' | 'chat_assist';
+  candidateId?: string;
+  applicationId?: string;
+  resumeId?: string;
+  userId: string;                    // Who triggered the AI action
+
+  model: 'gemini-1.5-pro' | 'gpt-4o' | 'claude-3-5-sonnet';
+  activeModel: string;               // Which was actually used
+
+  input: {
+    prompt: string;
+    jobDescription?: string;
+    resumeText?: string;
+  };
+  output: {
+    result: string;
+    tokensUsed?: number;
+    processingTimeMs: number;
+  };
+
+  success: boolean;
+  errorMessage?: string;
+  createdAt: Timestamp;
+}
+```
+
+---
+
+### COLLECTION: `systemSettings`
+**Purpose:** App-wide configuration, API keys (encrypted references), and feature flags.
+
+```typescript
+// Document ID: "config"
+interface SystemSettings {
+  aiProvider: 'gemini' | 'openai' | 'anthropic';  // Active provider
+  aiProviders: {
+    gemini: { enabled: true; model: 'gemini-1.5-pro' };
+    openai: { enabled: false; model: 'gpt-4o' };
+    anthropic: { enabled: false; model: 'claude-3-5-sonnet-20241022' };
+  };
+  weeklyReportAutoSend: boolean;
+  weeklyReportDay: number;           // 5 = Friday
+  dailyApplicationTarget: number;    // 15-25 per candidate
+  weeklyApplicationTarget: number;   // 75-125 per candidate
+  replySLAHours: number;             // 24
+  qualityScoreThreshold: number;     // Min score to mark as applied (0-100)
+  batchCurrent: string;              // "Batch 17"
+  revenueSharePercentage: number;    // 13
+  updatedAt: Timestamp;
+  updatedBy: string;
+}
+```
+
+---
+
+## FIREBASE SECURITY RULES
+
+```javascript
+// firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isAdmin() {
+      return getUserRole() == 'admin';
+    }
+    function isManager() {
+      return getUserRole() in ['admin', 'manager'];
+    }
+    function isEmployee() {
+      return getUserRole() in ['admin', 'manager', 'team_lead',
+        'job_search_assistant', 'resume_specialist', 'email_specialist'];
+    }
+    function isAssignedTo(candidateId) {
+      return request.auth.uid in
+        get(/databases/$(database)/documents/candidates/$(candidateId)).data.assignedTeam.values();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isManager());
+      allow create: if isAdmin();
+      allow update: if isAdmin() || request.auth.uid == userId;
+      allow delete: if isAdmin();
+
+      match /notifications/{notifId} {
+        allow read, write: if request.auth.uid == userId;
+      }
+    }
+
+    // Candidates
+    match /candidates/{candidateId} {
+      allow read: if isEmployee() || (getUserRole() == 'client' &&
+        request.auth.uid == resource.data.uid);
+      allow create: if isManager();
+      allow update: if isEmployee();
+      allow delete: if isAdmin();
+
+      match /notes/{noteId} {
+        allow read, write: if isEmployee();
+      }
+      match /followUps/{followUpId} {
+        allow read, write: if isEmployee();
+      }
+    }
+
+    // Applications
+    match /applications/{appId} {
+      allow read: if isEmployee() || (getUserRole() == 'client' &&
+        request.auth.uid in get(/databases/$(database)/documents/candidates/
+          $(resource.data.candidateId)).data.assignedTeam.values());
+      allow create, update: if isEmployee();
+      allow delete: if isManager();
+    }
+
+    // Resumes
+    match /resumes/{resumeId} {
+      allow read: if isEmployee();
+      allow write: if isEmployee();
+    }
+
+    // Weekly Reports
+    match /weeklyReports/{reportId} {
+      allow read: if isEmployee() || getUserRole() == 'client';
+      allow write: if isEmployee();
+    }
+
+    // Templates
+    match /templates/{templateId} {
+      allow read: if isEmployee();
+      allow write: if isManager();
+    }
+
+    // AI Sessions - admin/manager only
+    match /aiSessions/{sessionId} {
+      allow read: if isManager();
+      allow create: if isEmployee();
+      allow update, delete: if isAdmin();
+    }
+
+    // System Settings - admin only
+    match /systemSettings/{docId} {
+      allow read: if isEmployee();
+      allow write: if isAdmin();
+    }
+  }
+}
+```
+
+---
+
+## FIREBASE AUTH SETUP
+
+```typescript
+// src/lib/auth.ts
+import { auth, db } from './firebase';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  sendPasswordResetEmail,
+  onAuthStateChanged,
+  User
+} from 'firebase/auth';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+
+// Create new user (Admin only)
+export async function createUser(
+  email: string,
+  password: string,
+  role: UserRole,
+  displayName: string,
+  createdByUid: string
+) {
+  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  const uid = credential.user.uid;
+  await setDoc(doc(db, 'users', uid), {
+    uid,
+    email,
+    displayName,
+    role,
+    status: 'active',
+    assignedCandidates: [],
+    timezone: 'America/New_York',
+    weeklyTargetApplications: 100,
+    weeklyTargetReplies: 1,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    createdBy: createdByUid,
+  });
+  return uid;
+}
+
+// Auth state observer
+export function onAuthChange(callback: (user: User | null) => void) {
+  return onAuthStateChanged(auth, callback);
+}
+
+// Get current user profile from Firestore
+export async function getUserProfile(uid: string) {
+  const snap = await getDoc(doc(db, 'users', uid));
+  return snap.exists() ? snap.data() : null;
+}
+```
+
+---
+
+## AI INTEGRATION — GEMINI PRIMARY
+
+```typescript
+// src/lib/ai/gemini.ts
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = 'gemini-1.5-pro';
+const GEMINI_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+export async function callGemini(prompt: string, systemInstruction?: string): Promise<string> {
+  const body = {
+    system_instruction: systemInstruction
+      ? { parts: [{ text: systemInstruction }] }
+      : undefined,
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 4096,
+    },
+  };
+  const res = await fetch(GEMINI_BASE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+```
+
+```typescript
+// src/lib/ai/openai.ts — CONFIGURED BUT DISABLED
+export async function callOpenAI(prompt: string): Promise<string> {
+  // DISABLED: Set VITE_AI_PROVIDER=openai in .env to enable
+  throw new Error('OpenAI integration is configured but not active. Contact admin.');
+  /*
+  const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 4096,
+    }),
+  });
+  const data = await res.json();
+  return data.choices[0].message.content;
+  */
+}
+```
+
+```typescript
+// src/lib/ai/claude.ts — CONFIGURED BUT DISABLED
+export async function callClaude(prompt: string): Promise<string> {
+  // DISABLED: Set VITE_AI_PROVIDER=anthropic in .env to enable
+  throw new Error('Claude integration is configured but not active. Contact admin.');
+  /*
+  const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const data = await res.json();
+  return data.content[0].text;
+  */
+}
+```
+
+```typescript
+// src/lib/ai/index.ts — Unified AI Router
+import { callGemini } from './gemini';
+import { callOpenAI } from './openai';
+import { callClaude } from './claude';
+
+export async function callAI(prompt: string, systemInstruction?: string): Promise<string> {
+  const provider = import.meta.env.VITE_AI_PROVIDER ?? 'gemini';
+  switch (provider) {
+    case 'openai':    return callOpenAI(prompt);
+    case 'anthropic': return callClaude(prompt);
+    default:          return callGemini(prompt, systemInstruction);
+  }
+}
+
+// AI Feature Functions
+
+export async function tailorResume(resumeText: string, jobDescription: string, candidateName: string) {
+  const prompt = `
+You are an expert ATS resume optimizer for data roles (Data Analyst, Data Engineer, Power BI Developer, etc.).
+
+CANDIDATE NAME: ${candidateName}
+CANDIDATE RESUME:
+${resumeText}
+
+JOB DESCRIPTION:
+${jobDescription}
+
+Return a JSON object with this exact structure:
+{
+  "matchScoreBefore": <number 0-100>,
+  "matchScoreAfter": <number 0-100>,
+  "missingKeywords": ["keyword1", "keyword2"],
+  "addedKeywords": ["keyword1", "keyword2"],
+  "suggestedTitle": "optimized job title",
+  "optimizedSummary": "rewritten 3-sentence professional summary",
+  "optimizedSkills": ["skill1", "skill2"],
+  "optimizedBullets": {
+    "mostRecentRole": ["bullet1", "bullet2", "bullet3"]
+  },
+  "atsWarnings": ["warning1"],
+  "overallFeedback": "2-3 sentence coaching note"
+}
+Only respond with valid JSON. No markdown, no explanation.
+  `.trim();
+  const raw = await callGemini(prompt);
+  return JSON.parse(raw.replace(/```json|```/g, '').trim());
+}
+
+export async function parseJobDescription(jd: string) {
+  const prompt = `
+Extract structured data from this job description. Return JSON only:
+{
+  "jobTitle": "",
+  "company": "",
+  "location": "",
+  "workMode": "remote|hybrid|onsite",
+  "requiredSkills": [],
+  "preferredSkills": [],
+  "yearsOfExperience": 0,
+  "educationRequired": "",
+  "workAuthorization": "",
+  "salaryRange": "",
+  "jobType": "contract|fulltime|parttime",
+  "keywords": [],
+  "summary": ""
+}
+JD: ${jd}
+  `.trim();
+  const raw = await callGemini(prompt);
+  return JSON.parse(raw.replace(/```json|```/g, '').trim());
+}
+
+export async function generateRecruiterReply(
+  recruiterMessage: string,
+  candidateName: string,
+  candidateRole: string,
+  workAuth: string
+) {
+  const prompt = `
+Write a professional, concise recruiter reply for a job seeker.
+Candidate: ${candidateName}
+Target Role: ${candidateRole}
+Work Authorization: ${workAuth}
+Recruiter's Message: "${recruiterMessage}"
+
+Write a reply that is professional, enthusiastic but not desperate, and ends with a clear next-step ask.
+Return only the reply text, no subject line, no formatting.
+  `.trim();
+  return callGemini(prompt);
+}
+
+export async function generateWeeklyReport(
+  candidateName: string,
+  metrics: object,
+  topCompanies: string[],
+  highlights: string[]
+) {
+  const prompt = `
+Write a professional weekly job search progress report for a client.
+Client: ${candidateName}
+Metrics: ${JSON.stringify(metrics)}
+Top Companies Applied To: ${topCompanies.join(', ')}
+Highlights: ${highlights.join('; ')}
+
+Write 3 paragraphs: (1) what was accomplished, (2) results and responses received, (3) next week focus.
+Keep it motivating, professional, and data-forward. Under 200 words total.
+  `.trim();
+  return callGemini(prompt);
+}
+```
+
+---
+
+## APP STRUCTURE (FILE TREE)
+
+```
+src/
+├── lib/
+│   ├── firebase.ts
+│   ├── auth.ts
+│   ├── ai/
+│   │   ├── index.ts
+│   │   ├── gemini.ts
+│   │   ├── openai.ts
+│   │   └── claude.ts
+│   └── utils/
+│       ├── qualityScore.ts
+│       └── dateHelpers.ts
+├── stores/
+│   ├── authStore.ts          (Zustand)
+│   ├── candidateStore.ts
+│   └── uiStore.ts
+├── hooks/
+│   ├── useAuth.ts
+│   ├── useCandidates.ts
+│   ├── useApplications.ts
+│   └── useAI.ts
+├── components/
+│   ├── layout/
+│   │   ├── Sidebar.tsx
+│   │   ├── TopBar.tsx
+│   │   └── PageLayout.tsx
+│   ├── ui/
+│   │   ├── Button.tsx
+│   │   ├── Card.tsx
+│   │   ├── Badge.tsx
+│   │   ├── DataTable.tsx
+│   │   ├── Modal.tsx
+│   │   ├── StatCard.tsx
+│   │   └── StatusPill.tsx
+│   └── features/
+│       ├── applications/
+│       ├── resumes/
+│       ├── ai/
+│       └── reports/
+├── pages/
+│   ├── auth/
+│   │   ├── Login.tsx
+│   │   └── ForgotPassword.tsx
+│   ├── dashboard/
+│   │   ├── ManagerDashboard.tsx
+│   │   └── EmployeeDashboard.tsx
+│   ├── candidates/
+│   │   ├── CandidateList.tsx
+│   │   ├── CandidateDetail.tsx
+│   │   └── AddCandidate.tsx
+│   ├── applications/
+│   │   ├── ApplicationTracker.tsx
+│   │   └── AddApplication.tsx
+│   ├── ai/
+│   │   ├── ResumeTailor.tsx
+│   │   └── RecruiterReply.tsx
+│   ├── reports/
+│   │   └── WeeklyReports.tsx
+│   ├── clients/            (client-facing portal)
+│   │   └── ClientPortal.tsx
+│   ├── team/
+│   │   └── TeamManagement.tsx
+│   └── settings/
+│       └── SystemSettings.tsx
+└── App.tsx
+```
+
+---
+
+## USER ROLES & ROUTE PERMISSIONS
+
+| Route | Admin | Manager | Team Lead | Job Search Asst | Resume Spec | Email Spec | Client |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| /dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| /manager-dashboard | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| /candidates | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| /applications | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| /ai/resume-tailor | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| /ai/recruiter-reply | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| /reports | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| /client-portal | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| /team | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| /settings | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+---
+
+## KEY UI COMPONENTS TO BUILD
+
+### 1. Login Page
+- Dark navy background with subtle geometric pattern (Datanomics logo shapes)
+- Centered card with logo at top
+- Email + password fields
+- "Forgot Password" link
+- No self-registration (admin creates accounts)
+
+### 2. Sidebar
+- Dark navy (`--color-navy-dark`) background
+- Datanomics Technology logo at top with tagline
+- Navigation grouped: Dashboard, Candidates, Applications, AI Tools, Reports, Team, Settings
+- Active state: teal left border + teal text
+- Collapse to icons on small screens
+- User avatar + role badge at bottom
+
+### 3. Manager Dashboard KPI Cards
+Display as animated stat cards:
+- Total Active Candidates
+- Applications This Week (all team)
+- Recruiter Replies This Week
+- Interviews Scheduled
+- Pending Unread Messages (red if > 0)
+- Team Performance Score (average)
+- Employee leaderboard table (Name | Apps | Replies | Interviews | Score | Status)
+
+### 4. Candidate Detail Page
+Tabs: Overview | Applications | Resumes | Messages | Reports | Notes
+- Pipeline stage indicator (horizontal stepper)
+- Quick action buttons: Add Application, Tailor Resume, Generate Report
+- Assigned team display with avatars
+
+### 5. Application Tracker
+- Kanban board view (by status columns) AND table view toggle
+- Color-coded status pills
+- Quality score badge on each application card
+- Click to expand: full recruiter info, messages, next follow-up
+- Quick status update from card
+
+### 6. AI Resume Tailor Page
+- Left panel: paste job description or enter URL
+- Right panel: candidate resume selector
+- Center: Analyze button (teal, pulsing animation while loading)
+- Results: match score ring chart, missing keywords chips, optimized sections preview
+- Download tailored resume as DOCX button
+
+### 7. Client Portal (separate minimal layout)
+- Lighter, cleaner version of the dashboard
+- Datanomics logo prominent
+- Shows ONLY their own data
+- Weekly report history
+- Application pipeline stats
+- "Your Datanomics Team" section showing their assigned employees
+
+---
+
+## ENVIRONMENT VARIABLES (.env)
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+
+VITE_AI_PROVIDER=gemini
+VITE_GEMINI_API_KEY=
+VITE_OPENAI_API_KEY=
+VITE_ANTHROPIC_API_KEY=
+
+VITE_APP_NAME=Datanomics Job Search OS
+VITE_APP_VERSION=1.0.0
+```
+
+---
+
+## BUILD INSTRUCTIONS FOR THE AI ASSISTANT
+
+1. **Start with Firebase config and auth** — get login working first before building any UI
+2. **Build the Firestore service layer** — create typed service files for each collection (candidateService.ts, applicationService.ts, etc.) before building any UI that consumes data
+3. **Build layout components first** — Sidebar, TopBar, PageLayout — all pages use these
+4. **Build the Candidate module** — this is the core entity everything else links to
+5. **Build Application Tracker** — most important data view
+6. **Build AI Resume Tailor** — highest value feature
+7. **Build Manager Dashboard** — KPI aggregations from Firestore
+8. **Build Client Portal** — final phase, separate route group
+9. **Throughout**: use Datanomics brand colors from the CSS variables above. No white backgrounds. No purple. Dark navy everywhere. Teal for actions.
+10. **Every form must have Zod validation**. Every Firestore write must have error handling. Every AI call must have a loading state and error fallback.
+
+---
+
+*Built for Datanomics Technology | Job Search OS v1.0*
