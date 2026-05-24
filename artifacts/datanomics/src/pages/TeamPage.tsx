@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { friendlyError } from "@/lib/dbError";
 import { profileService } from "@/services/profileService";
 import { createUser } from "@/lib/auth";
 import type { Profile, UserRole } from "@/types";
@@ -137,7 +138,7 @@ export default function TeamPage() {
           {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-16 bg-muted/50 animate-pulse rounded-md" />)}
         </div>
       ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {error.message}</div>
+        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {friendlyError(error)}</div>
       ) : data.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-16 flex flex-col items-center justify-center text-center">
           <Users className="w-16 h-16 text-muted-foreground/30 mb-4" />

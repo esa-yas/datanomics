@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { friendlyError } from "@/lib/dbError";
 import { weeklyReportService } from "@/services/weeklyReportService";
 import { candidateService } from "@/services/candidateService";
 import { aiWeeklyNarrative } from "@/lib/ai";
@@ -132,7 +133,7 @@ export default function ReportsPage() {
           {[1, 2, 3].map(i => <div key={i} className="h-64 bg-muted/50 animate-pulse rounded-xl border border-border" />)}
         </div>
       ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {error.message}</div>
+        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {friendlyError(error)}</div>
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-20 flex flex-col items-center justify-center text-center">
           <BarChart3 className="w-16 h-16 text-muted-foreground/30 mb-4" />

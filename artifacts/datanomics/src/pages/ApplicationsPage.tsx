@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { applicationService } from "@/services/applicationService";
+import { friendlyError } from "@/lib/dbError";
 import { candidateService } from "@/services/candidateService";
 import { computeQualityScore } from "@/lib/utils/qualityScore";
 import type { Application, Candidate } from "@/types";
@@ -280,7 +281,7 @@ export default function ApplicationsPage() {
         </div>
       ) : error ? (
         <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-          Error loading applications: {error.message}
+          Error loading applications: {friendlyError(error)}
         </div>
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-lg border border-border py-16 text-center text-muted-foreground">

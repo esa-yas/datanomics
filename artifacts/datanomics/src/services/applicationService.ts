@@ -15,7 +15,7 @@ export const applicationService = {
   async getById(id: string) {
     const { data, error } = await supabase
       .from('applications')
-      .select('*, application_status_history(*), application_messages(*)')
+      .select('*, application_status_history(*)')
       .eq('id', id)
       .single();
     if (error) throw error;

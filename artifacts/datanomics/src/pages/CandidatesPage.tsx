@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { candidateService } from "@/services/candidateService";
+import { friendlyError } from "@/lib/dbError";
 import type { Candidate } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -233,7 +234,7 @@ export default function CandidatesPage() {
         </div>
       ) : error ? (
         <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-          Error loading candidates: {error.message}
+          Error loading candidates: {friendlyError(error)}
         </div>
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-lg border border-border p-12 flex flex-col items-center justify-center text-center">

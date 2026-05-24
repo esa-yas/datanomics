@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "wouter";
+import { friendlyError } from "@/lib/dbError";
 import { candidateService } from "@/services/candidateService";
 import { applicationService } from "@/services/applicationService";
 import { resumeService } from "@/services/resumeService";

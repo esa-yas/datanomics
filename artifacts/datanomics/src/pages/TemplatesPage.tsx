@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { friendlyError } from "@/lib/dbError";
 import { templateService } from "@/services/templateService";
 import type { Template, TemplateCategory } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -166,7 +167,7 @@ export default function TemplatesPage() {
           {[1, 2, 3].map(i => <div key={i} className="h-48 bg-card animate-pulse rounded-xl border border-border" />)}
         </div>
       ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {error.message}</div>
+        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {friendlyError(error)}</div>
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-16 text-center text-muted-foreground">
           <BookOpen className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />

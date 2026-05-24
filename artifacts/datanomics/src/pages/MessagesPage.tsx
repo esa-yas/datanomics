@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { friendlyError } from "@/lib/dbError";
 import { recruiterMessageService } from "@/services/recruiterMessageService";
 import { candidateService } from "@/services/candidateService";
 import { callAI, aiRecruiterReply } from "@/lib/ai";
@@ -200,7 +201,7 @@ export default function MessagesPage() {
       {loading ? (
         <div className="flex-1 bg-card border border-border animate-pulse rounded-xl" />
       ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {error.message}</div>
+        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {friendlyError(error)}</div>
       ) : (
         <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
           

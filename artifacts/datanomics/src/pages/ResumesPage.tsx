@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { friendlyError } from "@/lib/dbError";
 import { resumeService } from "@/services/resumeService";
 import { candidateService } from "@/services/candidateService";
 import { callAI, aiTailorResume } from "@/lib/ai";
@@ -209,7 +210,7 @@ export default function ResumesPage() {
         </div>
       ) : error ? (
         <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-          Error: {error.message}
+          Error: {friendlyError(error)}
         </div>
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-16 text-center">
