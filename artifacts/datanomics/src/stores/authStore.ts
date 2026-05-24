@@ -2,6 +2,29 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../types';
 
+const CACHE_KEY = 'dn_profile_v1';
+
+function saveProfileCache(profile: Profile) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(profile));
+  } catch {}
+}
+
+function loadProfileCache(): Profile | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Profile) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearProfileCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+  } catch {}
+}
+
 function buildFallbackProfile(userId: string, email: string): Profile {
   return {
     id: userId,
@@ -19,16 +42,17 @@ function buildFallbackProfile(userId: string, email: string): Profile {
 }
 
 async function fetchOrCreateProfile(userId: string, email: string): Promise<Profile> {
-  // Try to fetch existing profile
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', userId)
     .single();
 
-  if (data) return data as Profile;
+  if (data) {
+    saveProfileCache(data as Profile);
+    return data as Profile;
+  }
 
-  // Profile doesn't exist (user created before trigger was fixed) — upsert it
   const fallback = {
     id: userId,
     email,
@@ -46,7 +70,9 @@ async function fetchOrCreateProfile(userId: string, email: string): Promise<Prof
     .select()
     .single();
 
-  return (upserted as Profile) ?? buildFallbackProfile(userId, email);
+  const profile = (upserted as Profile) ?? buildFallbackProfile(userId, email);
+  saveProfileCache(profile);
+  return profile;
 }
 
 interface AuthState {
@@ -68,30 +94,46 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user }),
 
   initialize: async () => {
-    set({ loading: true });
+    // Step 1: Hydrate from cache instantly — zero network latency
+    const cached = loadProfileCache();
+    if (cached) {
+      set({ user: cached, loading: false, initialized: true });
+    }
 
-    // Check for an existing session on load
+    // Step 2: Validate session from Supabase in the background
     const { data: { session } } = await supabase.auth.getSession();
+
     if (session?.user) {
+      // Refresh profile from DB (don't block if cache already showed it)
       const profile = await fetchOrCreateProfile(session.user.id, session.user.email ?? '');
       set({ session, user: profile, loading: false, initialized: true });
     } else {
+      // No valid session — clear cache and show login
+      clearProfileCache();
       set({ session: null, user: null, loading: false, initialized: true });
     }
 
-    // Listen for future auth changes (login / logout)
+    // Step 3: Listen for future auth changes (login / logout / token refresh)
     supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        set({ loading: true });
+        const cached = loadProfileCache();
+        // Use cache optimistically, refresh in background
+        if (cached && cached.id === session.user.id) {
+          set({ session, user: cached, loading: false });
+        } else {
+          set({ loading: true });
+        }
         const profile = await fetchOrCreateProfile(session.user.id, session.user.email ?? '');
         set({ session, user: profile, loading: false });
       } else {
+        clearProfileCache();
         set({ session: null, user: null, loading: false });
       }
     });
   },
 
   signOut: async () => {
+    clearProfileCache();
     await supabase.auth.signOut();
     set({ user: null, session: null });
   },
