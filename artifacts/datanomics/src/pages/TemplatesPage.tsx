@@ -52,7 +52,7 @@ export default function TemplatesPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.body) return toast.error("Name and Body are required");
+    if (!formData.name || !formData.body) { toast.error("Name and Body are required"); return; }
 
     const vars = extractVariables(formData.body);
     

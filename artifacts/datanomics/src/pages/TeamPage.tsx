@@ -51,7 +51,7 @@ export default function TeamPage() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.email || !formData.password || !formData.displayName) {
-      return toast.error("Please fill all required fields");
+      toast.error("Please fill all required fields"); return;
     }
 
     setIsSubmitting(true);

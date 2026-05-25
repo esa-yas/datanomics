@@ -82,7 +82,7 @@ export default function MessagesPage() {
 
   const handleLogSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!logForm.candidate_id || !logForm.body) return toast.error("Candidate and Body are required");
+    if (!logForm.candidate_id || !logForm.body) { toast.error("Candidate and Body are required"); return; }
 
     try {
       await recruiterMessageService.create({

@@ -50,7 +50,7 @@ export default function ReportsPage() {
   const filteredData = candFilter === "all" ? data : data.filter(r => r.candidate_id === candFilter);
 
   const handleGenerate = async () => {
-    if (!genCandId) return toast.error("Select a candidate");
+    if (!genCandId) { toast.error("Select a candidate"); return; }
     setIsGenerating(true);
     try {
       const cand = candidates.find(c => c.id === genCandId);

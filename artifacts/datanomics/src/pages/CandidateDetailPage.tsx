@@ -333,8 +333,8 @@ function ResumesTab({ data, resumes, onTailored }: { data: Candidate, resumes: R
   const baseResume = resumes.find(r => r.type === 'base');
 
   const handleTailor = async () => {
-    if (!jd.trim()) return toast.error("Paste a job description first");
-    if (!baseResume?.raw_text && !baseResume?.summary) return toast.error("Candidate has no base resume content to tailor");
+    if (!jd.trim()) { toast.error("Paste a job description first"); return; }
+    if (!baseResume?.raw_text && !baseResume?.summary) { toast.error("Candidate has no base resume content to tailor"); return; }
     
     setIsTailoring(true);
     try {
