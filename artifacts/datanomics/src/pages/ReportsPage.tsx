@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
-import { friendlyError } from "@/lib/dbError";
+import { useState } from "react";
 import { weeklyReportService } from "@/services/weeklyReportService";
-import { candidateService } from "@/services/candidateService";
+import { useReports, useCandidatesPicklist, useInvalidateData } from "@/hooks/useData";
+import { useDataReady } from "@/hooks/useDataReady";
+import { QueryError, FetchingHint, ListSkeleton } from "@/components/ui/QueryState";
 import { aiWeeklyNarrative } from "@/lib/ai";
 import type { WeeklyReport, Candidate } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -14,10 +15,11 @@ import { useAuthStore } from "@/stores/authStore";
 
 export default function ReportsPage() {
   const { user } = useAuthStore();
-  const [data, setData] = useState<WeeklyReport[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const invalidate = useInvalidateData();
+  const ready = useDataReady();
+  const { data, isPending, isError, error, isFetching, refetch, isFetched } = useReports();
+  const reports = data ?? [];
+  const { data: candidates = [] } = useCandidatesPicklist();
 
   const [candFilter, setCandFilter] = useState("all");
 
@@ -27,27 +29,7 @@ export default function ReportsPage() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const loadAll = async () => {
-    setLoading(true);
-    try {
-      const [reps, cands] = await Promise.all([
-        weeklyReportService.getAll(),
-        candidateService.getAll()
-      ]);
-      setData(reps);
-      setCandidates(cands);
-    } catch (err: any) {
-      setError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadAll();
-  }, []);
-
-  const filteredData = candFilter === "all" ? data : data.filter(r => r.candidate_id === candFilter);
+  const filteredData = candFilter === "all" ? reports : reports.filter(r => r.candidate_id === candFilter);
 
   const handleGenerate = async () => {
     if (!genCandId) { toast.error("Select a candidate"); return; }
@@ -70,7 +52,7 @@ export default function ReportsPage() {
       toast.success("Report generated successfully!");
       setGenOpen(false);
       setGenCandId("");
-      loadAll();
+      invalidate.reports();
     } catch (err: any) {
       toast.error(err.message || "Failed to generate report");
     } finally {
@@ -82,7 +64,7 @@ export default function ReportsPage() {
     try {
       await weeklyReportService.markSent(id, email);
       toast.success("Marked as sent to client");
-      loadAll();
+      invalidate.reports();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -128,12 +110,12 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3].map(i => <div key={i} className="h-64 bg-muted/50 animate-pulse rounded-xl border border-border" />)}
-        </div>
-      ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">Error: {friendlyError(error)}</div>
+      <FetchingHint show={ready && isFetching && isFetched} />
+
+      {!ready || isPending ? (
+        <ListSkeleton rows={3} />
+      ) : isError ? (
+        <QueryError error={error} onRetry={() => refetch()} label="Failed to load reports" />
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-20 flex flex-col items-center justify-center text-center">
           <BarChart3 className="w-16 h-16 text-muted-foreground/30 mb-4" />

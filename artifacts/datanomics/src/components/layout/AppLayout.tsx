@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/stores/authStore";
+import { canAccessReports } from "@/lib/permissions";
 import SetupBanner from "@/components/SetupBanner";
+import DataAccessBanner from "@/components/DataAccessBanner";
 import {
   LayoutDashboard,
   Users,
@@ -12,6 +14,8 @@ import {
   BookOpen,
   UserCheck,
   Settings2,
+  Sparkles,
+  IdCard,
   LogOut,
   Bell,
   Menu,
@@ -35,16 +39,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
     { href: "/candidates", label: "Candidates", icon: Users, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
+    { href: "/profiles", label: "Profiles", icon: IdCard, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
+    { href: "/job-recommendations", label: "Job research", icon: Sparkles, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
     { href: "/applications", label: "Applications", icon: Briefcase, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
     { href: "/resumes", label: "Resumes", icon: FileText, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
     { href: "/messages", label: "Messages", icon: MessageSquare, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
-    { href: "/reports", label: "Reports", icon: BarChart3, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
-    { href: "/templates", label: "Templates", icon: BookOpen, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
+    { href: "/reports", label: "Reports", icon: BarChart3, roles: ["admin", "manager", "team_lead", "resume_specialist", "email_specialist"] },
+    { href: "/templates", label: "Templates & AI", icon: BookOpen, roles: ["admin", "manager", "team_lead", "job_search_assistant", "resume_specialist", "email_specialist"] },
     { href: "/team", label: "Team", icon: UserCheck, roles: ["admin", "manager"] },
     { href: "/settings", label: "Settings", icon: Settings2, roles: ["admin"] },
   ];
 
-  const visibleNavItems = navItems.filter((item) => user?.role && item.roles.includes(user.role));
+  const visibleNavItems = navItems.filter(
+    (item) => user?.role && item.roles.includes(user.role) && (item.href !== "/reports" || canAccessReports(user.role)),
+  );
 
   const getPageTitle = () => {
     const currentItem = navItems.find((item) => item.href === location || (item.href !== "/" && location.startsWith(item.href)));
@@ -119,6 +127,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <SetupBanner />
+      <DataAccessBanner />
         <header className="bg-background border-b border-border h-16 flex items-center justify-between px-4 sm:px-6 z-10 sticky top-0">
           <div className="flex items-center">
             <button

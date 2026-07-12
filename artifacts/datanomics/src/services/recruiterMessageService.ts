@@ -1,7 +1,33 @@
 import { supabase } from '../lib/supabase';
 import type { RecruiterMessage } from '../types';
 
+/** recruiter_messages has no candidate_name column — join candidates for display name */
+const MESSAGE_LIST_COLUMNS =
+  'id, candidate_id, direction, channel, status, priority, subject, body, received_at, assigned_to, ai_reply, actual_reply, replied_at, replied_by, created_at, candidates(full_name)';
+
 export const recruiterMessageService = {
+  async getList(filters?: { status?: string; priority?: string }) {
+    let q = supabase
+      .from('recruiter_messages')
+      .select(MESSAGE_LIST_COLUMNS)
+      .order('received_at', { ascending: false });
+    if (filters?.status) q = q.eq('status', filters.status);
+    if (filters?.priority) q = q.eq('priority', filters.priority);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data as RecruiterMessage[];
+  },
+
+  async getUnreadCount(assignedTo?: string) {
+    let q = supabase
+      .from('recruiter_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'unread');
+    if (assignedTo) q = q.eq('assigned_to', assignedTo);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count ?? 0;
+  },
   async create(msg: Partial<RecruiterMessage>) {
     const { data, error } = await supabase
       .from('recruiter_messages')
@@ -35,15 +61,7 @@ export const recruiterMessageService = {
   },
 
   async getAll(filters?: { status?: string; priority?: string }) {
-    let q = supabase
-      .from('recruiter_messages')
-      .select('*')
-      .order('received_at', { ascending: false });
-    if (filters?.status) q = q.eq('status', filters.status);
-    if (filters?.priority) q = q.eq('priority', filters.priority);
-    const { data, error } = await q;
-    if (error) throw error;
-    return data as RecruiterMessage[];
+    return this.getList(filters);
   },
 
   async markRead(id: string) {

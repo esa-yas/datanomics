@@ -1,20 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
+import { appConfig, isSupabaseConfigured } from './config';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('Supabase credentials not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+if (!isSupabaseConfigured()) {
+  console.warn(
+    '[Datanomics] Supabase not configured. Copy .env.example → .env at the repo root and set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY.',
+  );
 }
 
 export const supabase = createClient(
-  SUPABASE_URL || 'https://placeholder.supabase.co',
-  SUPABASE_ANON_KEY || 'placeholder',
+  appConfig.supabaseUrl ?? '',
+  appConfig.supabaseAnonKey ?? '',
   {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
     },
-  }
+  },
 );
+
+export { isSupabaseConfigured };

@@ -1,31 +1,64 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "@/lib/auth";
+import { getSupabaseConfigError, isSupabaseConfigured } from "@/lib/config";
+import { probeSupabaseConnection } from "@/lib/supabaseHealth";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Hexagon } from "lucide-react";
+import { Hexagon, Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [checkingConnection, setCheckingConnection] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    probeSupabaseConnection()
+      .then((result) => {
+        if (!cancelled && !result.ok) setConnectionError(result.error ?? 'Cannot reach Supabase');
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingConnection(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       toast.error("Please enter email and password");
       return;
     }
+    const configError = getSupabaseConfigError();
+    if (configError) {
+      toast.error(configError);
+      return;
+    }
+    if (connectionError) {
+      toast.error(connectionError);
+      return;
+    }
     setLoading(true);
     try {
       await signIn(email, password);
       // Don't navigate manually — authStore.onAuthStateChange will update
-      // the user state and App.tsx will automatically render the dashboard
-    } catch (error: any) {
-      toast.error(error.message || "Failed to sign in");
+      // the user state and App.tsx will automatically render the dashboard.
+      // Keep the button in its loading state until the redirect happens.
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to sign in";
+      toast.error(message);
       setLoading(false);
     }
   };
+
+  const supabaseReady = isSupabaseConfigured();
 
   return (
     <div className="min-h-screen bg-background flex font-body">
@@ -65,6 +98,24 @@ export default function LoginPage() {
             <p className="text-muted-foreground">Sign in to Job Search OS</p>
           </div>
 
+          {!supabaseReady && (
+            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200/90">
+              Supabase is not configured. Copy <code className="text-yellow-100">.env.example</code> to{" "}
+              <code className="text-yellow-100">.env</code> at the repo root and add your project URL and anon key.
+            </div>
+          )}
+
+          {connectionError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive/90 leading-relaxed">
+              <p className="font-semibold text-destructive mb-1">Cannot connect to Supabase</p>
+              <p>{connectionError}</p>
+            </div>
+          )}
+
+          {checkingConnection && supabaseReady && !connectionError && (
+            <p className="text-xs text-muted-foreground">Checking Supabase connection…</p>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
@@ -83,23 +134,41 @@ export default function LoginPage() {
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
               </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-card border-border h-12 text-base"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="bg-card border-border h-12 text-base pr-12"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
 
             <Button 
               type="submit" 
               className="w-full h-12 text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-              disabled={loading}
+              disabled={loading || !supabaseReady}
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Signing in…
+                </>
+              ) : (
+                "Sign In"
+              )}
             </Button>
           </form>
         </div>

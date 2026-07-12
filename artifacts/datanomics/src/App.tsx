@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { Toaster } from "react-hot-toast";
 import { useEffect } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -11,6 +11,8 @@ const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const CandidatesPage = lazy(() => import("@/pages/CandidatesPage"));
 const CandidateDetailPage = lazy(() => import("@/pages/CandidateDetailPage"));
+const ProfilesImportPage = lazy(() => import("@/pages/ProfilesImportPage"));
+const JobRecommendationsPage = lazy(() => import("@/pages/JobRecommendationsPage"));
 const ApplicationsPage = lazy(() => import("@/pages/ApplicationsPage"));
 const ResumesPage = lazy(() => import("@/pages/ResumesPage"));
 const MessagesPage = lazy(() => import("@/pages/MessagesPage"));
@@ -19,6 +21,10 @@ const TemplatesPage = lazy(() => import("@/pages/TemplatesPage"));
 const TeamPage = lazy(() => import("@/pages/TeamPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const ClientPortalPage = lazy(() => import("@/pages/ClientPortalPage"));
+const GoogleConnectPage = lazy(() => import("@/pages/GoogleConnectPage"));
+const GoogleConnectResultPage = lazy(() => import("@/pages/GoogleConnectResultPage"));
+const InterviewPracticePage = lazy(() => import("@/pages/InterviewPracticePage"));
+const InterviewPracticeReportPage = lazy(() => import("@/pages/InterviewPracticeReportPage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
 function PageShell() {
@@ -30,9 +36,27 @@ function PageShell() {
 }
 
 function Router() {
-  const { user, loading } = useAuthStore();
+  const [location] = useLocation();
+  const { user, loading, initialized } = useAuthStore();
 
-  if (loading) {
+  const isPublicGmailRoute = location.startsWith("/connect/google");
+  const isPublicInterviewRoute = location.startsWith("/interview/");
+
+  if (isPublicGmailRoute || isPublicInterviewRoute) {
+    return (
+      <Suspense fallback={<PageShell />}>
+        <Switch>
+          <Route path="/connect/google/result" component={GoogleConnectResultPage} />
+          <Route path="/connect/google/:token" component={GoogleConnectPage} />
+          <Route path="/interview/:token/report" component={InterviewPracticeReportPage} />
+          <Route path="/interview/:token" component={InterviewPracticePage} />
+          <Route component={NotFoundPage} />
+        </Switch>
+      </Suspense>
+    );
+  }
+
+  if (!initialized || loading) {
     return <PageShell />;
   }
 
@@ -66,10 +90,18 @@ function Router() {
           <Route path="/" component={DashboardPage} />
           <Route path="/candidates" component={CandidatesPage} />
           <Route path="/candidates/:id" component={CandidateDetailPage} />
+          <Route path="/profiles" component={ProfilesImportPage} />
+          <Route path="/job-recommendations" component={JobRecommendationsPage} />
           <Route path="/applications" component={ApplicationsPage} />
           <Route path="/resumes" component={ResumesPage} />
           <Route path="/messages" component={MessagesPage} />
-          <Route path="/reports" component={ReportsPage} />
+          <Route path="/reports">
+            {() => (
+              <ProtectedRoute roles={["admin", "manager", "team_lead", "resume_specialist", "email_specialist"]}>
+                <ReportsPage />
+              </ProtectedRoute>
+            )}
+          </Route>
           <Route path="/templates" component={TemplatesPage} />
           <Route path="/team">
             {() => (

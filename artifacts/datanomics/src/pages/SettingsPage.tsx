@@ -65,21 +65,30 @@ export default function SettingsPage() {
           <div className="p-6">
             <Label className="text-sm font-medium mb-3 block">Active AI Provider</Label>
             <div className="flex gap-3">
-              <button 
+              <button
+                type="button"
+                className={`px-6 py-2.5 rounded-lg text-sm font-bold tracking-wide transition-all border ${settings.active_ai_provider === 'openai' ? 'bg-primary/20 text-primary border-primary shadow-sm' : 'bg-background border-border text-muted-foreground hover:bg-muted'}`}
+                onClick={() => setSettings({ ...settings, active_ai_provider: 'openai' })}
+              >
+                OpenAI GPT 5.5
+              </button>
+              <button
                 type="button"
                 className={`px-6 py-2.5 rounded-lg text-sm font-bold tracking-wide transition-all border ${settings.active_ai_provider === 'gemini' ? 'bg-primary/20 text-primary border-primary shadow-sm' : 'bg-background border-border text-muted-foreground hover:bg-muted'}`}
-                onClick={() => setSettings({...settings, active_ai_provider: 'gemini'})}
+                onClick={() => setSettings({ ...settings, active_ai_provider: 'gemini' })}
               >
                 Google Gemini
-              </button>
-              <button type="button" className="px-6 py-2.5 rounded-lg text-sm font-bold tracking-wide border bg-muted/50 border-border text-muted-foreground/50 cursor-not-allowed">
-                OpenAI (Coming Soon)
               </button>
               <button type="button" className="px-6 py-2.5 rounded-lg text-sm font-bold tracking-wide border bg-muted/50 border-border text-muted-foreground/50 cursor-not-allowed">
                 Anthropic (Coming Soon)
               </button>
             </div>
-            <p className="text-xs text-muted-foreground mt-3">Currently only Gemini 1.5 Pro is fully integrated for resume tailoring and message generation.</p>
+            <p className="text-xs text-muted-foreground mt-3">
+              Runtime provider is set in <code className="bg-muted px-1 rounded">.env</code> via{' '}
+              <code className="bg-muted px-1 rounded">VITE_AI_PROVIDER</code>. Default: GPT 5.5 (
+              {import.meta.env.VITE_OPENAI_MODEL ?? 'gpt-5.5'}) via{' '}
+              {import.meta.env.VITE_OPENAI_BASE_URL ?? '/api/ai'} server proxy).
+            </p>
           </div>
         </div>
 

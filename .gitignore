@@ -41,8 +41,15 @@ testem.log
 .DS_Store
 Thumbs.db
 
+.cursor/
+!.cursor/rules/
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
+
+# Environment (secrets)
+.env
+.env.local
+.env.*.local
 
 # Replit
 .cache/

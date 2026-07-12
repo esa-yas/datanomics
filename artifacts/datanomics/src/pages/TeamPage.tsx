@@ -1,14 +1,18 @@
 import { useState, useEffect } from "react";
 import { friendlyError } from "@/lib/dbError";
 import { profileService } from "@/services/profileService";
+import { staffImportService } from "@/services/staffImportService";
 import { createUser } from "@/lib/auth";
+import { useAuthStore } from "@/stores/authStore";
+import { useInvalidateData } from "@/hooks/useData";
 import type { Profile, UserRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, Plus, Shield, User as UserIcon } from "lucide-react";
+import { Users, Plus, Shield, User as UserIcon, FileJson } from "lucide-react";
 import toast from "react-hot-toast";
 
 const ROLE_COLORS: Record<string, string> = {
@@ -22,6 +26,8 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 export default function TeamPage() {
+  const { user } = useAuthStore();
+  const invalidate = useInvalidateData();
   const [data, setData] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -31,6 +37,11 @@ export default function TeamPage() {
   const [formData, setFormData] = useState({
     email: "", password: "", displayName: "", role: "job_search_assistant" as UserRole, phoneNumber: ""
   });
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importTarget, setImportTarget] = useState<Profile | null>(null);
+  const [importText, setImportText] = useState("");
+  const [importSaving, setImportSaving] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -75,6 +86,37 @@ export default function TeamPage() {
       toast.success("Role updated");
     } catch (err: any) {
       toast.error(err.message);
+    }
+  };
+
+  const openImport = async (member: Profile) => {
+    setImportTarget(member);
+    setImportOpen(true);
+    try {
+      const existing = await staffImportService.getForStaff(member.id);
+      setImportText(existing?.raw_text ?? (existing ? JSON.stringify(existing.import_data, null, 2) : ""));
+    } catch {
+      setImportText("");
+    }
+  };
+
+  const handleSaveImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importTarget || !user) return;
+    if (!importText.trim()) {
+      toast.error("Paste JSON or reference text");
+      return;
+    }
+    setImportSaving(true);
+    try {
+      await staffImportService.upsert(importTarget.id, importText, user.id);
+      invalidate.staffImports();
+      toast.success("Reference data saved");
+      setImportOpen(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setImportSaving(false);
     }
   };
 
@@ -157,6 +199,7 @@ export default function TeamPage() {
                   <th className="px-5 py-4 font-medium whitespace-nowrap text-center">Status</th>
                   <th className="px-5 py-4 font-medium whitespace-nowrap text-center">Target Apps/Wk</th>
                   <th className="px-5 py-4 font-medium whitespace-nowrap text-right">Last Login</th>
+                  <th className="px-5 py-4 font-medium whitespace-nowrap text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -197,6 +240,13 @@ export default function TeamPage() {
                     <td className="px-5 py-4 text-right text-xs text-muted-foreground whitespace-nowrap">
                       {timeAgo(u.last_login_at || "")}
                     </td>
+                    <td className="px-5 py-4 text-right">
+                      {u.role === "job_search_assistant" && (
+                        <Button variant="outline" size="sm" onClick={() => void openImport(u)} className="gap-1.5">
+                          <FileJson className="w-3.5 h-3.5" /> Import data
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -204,6 +254,31 @@ export default function TeamPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="sm:max-w-lg bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>
+              Reference data — {importTarget?.display_name}
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveImport} className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Paste JSON or plain text. Job search assistants see this on the Candidates → Reference data tab.
+            </p>
+            <Textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              className="min-h-[240px] font-mono text-xs"
+              placeholder='{"templates": [...], "notes": "..."}'
+            />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={importSaving}>{importSaving ? "Saving…" : "Save"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,7 +1,22 @@
 import { supabase } from '../lib/supabase';
 import type { Application, ApplicationStatus, ApplicationStatusHistory } from '../types';
 
+const APPLICATION_LIST_COLUMNS =
+  'id, candidate_id, candidate_name, company, job_title, status, quality_score, applied_at, flagged, flag_reason, job_source, work_mode, job_url, pay_rate, pay_type, applied_by, notes, last_activity_at';
+
 export const applicationService = {
+  async getList(filters?: { status?: ApplicationStatus; flagged?: boolean; limit?: number }) {
+    let q = supabase
+      .from('applications')
+      .select(APPLICATION_LIST_COLUMNS)
+      .order('applied_at', { ascending: false });
+    if (filters?.status) q = q.eq('status', filters.status);
+    if (filters?.flagged !== undefined) q = q.eq('flagged', filters.flagged);
+    if (filters?.limit) q = q.limit(filters.limit);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data as Application[];
+  },
   async create(app: Partial<Application>) {
     const { data, error } = await supabase
       .from('applications')
@@ -43,16 +58,7 @@ export const applicationService = {
   },
 
   async getAll(filters?: { status?: ApplicationStatus; flagged?: boolean; limit?: number }) {
-    let q = supabase
-      .from('applications')
-      .select('*')
-      .order('applied_at', { ascending: false });
-    if (filters?.status) q = q.eq('status', filters.status);
-    if (filters?.flagged !== undefined) q = q.eq('flagged', filters.flagged);
-    if (filters?.limit) q = q.limit(filters.limit);
-    const { data, error } = await q;
-    if (error) throw error;
-    return data as Application[];
+    return this.getList(filters);
   },
 
   async update(id: string, updates: Partial<Application>) {

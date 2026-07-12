@@ -43,20 +43,33 @@ Set the build command and start command:
 
 | Field | Value |
 |-------|--------|
-| Build Command | `pnpm install && pnpm build:app` |
+| Build Command | `pnpm install --frozen-lockfile && pnpm run build:app` |
 | Start Command | `pnpm start` |
 | Health Check | `/api/healthz` (optional) |
 
-**Do not** run `corepack enable` on Render — the filesystem is read-only and the build
-will fail with `EROFS: read-only file system, unlink '/usr/bin/pnpm'`.
+**Do not** run `corepack enable` or `npm install -g pnpm` on Render — the filesystem
+is read-only and both fail with `EROFS`.
 
-Render detects `pnpm-lock.yaml` and provides `pnpm` automatically. If the build
-still cannot find pnpm, use:
+If `pnpm start` fails with `scripts/start.sh: No such file or directory`, either
+push the latest `package.json` (start runs Node directly) or set Start Command to:
 
-`npm install -g pnpm && pnpm install && pnpm build:app`
+`node --enable-source-maps artifacts/api-server/dist/index.mjs`
+
+Render auto-detects `pnpm-lock.yaml` and provides a `pnpm` binary. Your build
+command should only **use** pnpm, not install it globally.
+
+If the build says `pnpm: command not found`, use npx (writes to a writable cache):
+
+`npx --yes pnpm@10.12.4 install --frozen-lockfile && npx --yes pnpm@10.12.4 run build:app`
+
+**Alternative:** set Runtime to **Docker** and use the repo `Dockerfile` (most reliable).
 
 Set all `VITE_*` environment variables in the Render dashboard **before** the first
 build (they are baked into the frontend at build time).
+
+Also set **`BASE_PATH=/`** (required by the Vite build on commits before the config
+default was relaxed). After you deploy a commit with the updated `vite.config.ts`,
+this is optional.
 
 ## Required environment variables
 

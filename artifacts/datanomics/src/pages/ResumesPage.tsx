@@ -1,18 +1,48 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { friendlyError } from "@/lib/dbError";
 import { resumeService } from "@/services/resumeService";
-import { candidateService } from "@/services/candidateService";
+import { useResumes, useCandidatesPicklist, useInvalidateData, type ResumeListRow } from "@/hooks/useData";
+import { useDataReady } from "@/hooks/useDataReady";
+import { useTailoredDocumentPreview } from "@/hooks/useTailoredDocumentPreview";
+import { QueryError, FetchingHint, ListSkeleton } from "@/components/ui/QueryState";
 import { aiTailorResume } from "@/lib/ai";
+import { buildTailoredText, type TailorResult } from "@/lib/utils/resumeTailor";
+import { downloadBlob, safeFilename, buildTailoredDocxBlob } from "@/lib/resume/exportTailored";
+import { withTimeout } from "@/lib/fetchUtils";
+import { computeJdMatchPreview } from "@/lib/resume/jdMatchPreview";
+import {
+  extractResumeContent,
+  extractResumeFromDocxUrl,
+  extractDocxParagraphTexts,
+  isResumeFile,
+  resumeFileAccept,
+} from "@/lib/resume/extractText";
+import { uploadResumeFile } from "@/lib/resume/uploadResume";
+import { ResumePdfPreview } from "@/components/resume/ResumeDocumentView";
+import { FaithfulResumeView } from "@/components/resume/FaithfulResumeView";
+import { AiThinkingBubble } from "@/components/resume/StyledResumeView";
+import { ResumeHtmlPreview } from "@/components/resume/ResumeHtmlPreview";
+import { useLiveTailorReveal } from "@/hooks/useLiveTailorReveal";
+import { useSourceDocxInner } from "@/hooks/useDocxHtmlPreview";
+import { wrapMammothInnerHtml } from "@/lib/resume/resumeHeader";
+import { createSourceResumeSnapshot, isValidSourceSnapshot, pickImmutableSourceText, type SourceResumeSnapshot } from "@/lib/resume/sourceResumeSnapshot";
+import { enableResumeExportDebug } from "@/lib/resume/exportTailored";
+import type { ResumeLine } from "@/lib/resume/resumeLines";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { FileText, Download, ArrowRight, Sparkles, Upload, ChevronLeft, CheckCircle, AlertCircle, RotateCcw, Save } from "lucide-react";
+import { FileText, Download, ArrowRight, Sparkles, Upload, ChevronLeft, CheckCircle, RotateCcw, Save, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "@/stores/authStore";
+
+function resumeCandidateName(candidates: unknown): string {
+  if (!candidates) return "Unknown";
+  if (Array.isArray(candidates)) return (candidates[0] as { full_name?: string })?.full_name ?? "Unknown";
+  return (candidates as { full_name?: string }).full_name ?? "Unknown";
+}
 
 const ANALYSIS_STEPS = [
   { msg: "Reading resume structure and sections…", pct: 10 },
@@ -26,78 +56,16 @@ const ANALYSIS_STEPS = [
   { msg: "Finalizing tailored version…", pct: 97 },
 ];
 
-function diffLines(original: string, tailored: string): Array<{ text: string; changed: boolean }> {
-  const origLines = original.split('\n');
-  const tailLines = tailored.split('\n');
-  const maxLen = Math.max(origLines.length, tailLines.length);
-  const result: Array<{ text: string; changed: boolean }> = [];
-  for (let i = 0; i < maxLen; i++) {
-    const o = origLines[i] ?? '';
-    const t = tailLines[i] ?? '';
-    result.push({ text: t || o, changed: t.trim() !== o.trim() && t.trim() !== '' });
-  }
-  return result;
-}
-
-function ResumeDocument({ text, tailoredText, isProcessing, showDiff }: {
-  text: string;
-  tailoredText?: string;
-  isProcessing?: boolean;
-  showDiff?: boolean;
-}) {
-  const lines = showDiff && tailoredText
-    ? diffLines(text, tailoredText)
-    : text.split('\n').map(l => ({ text: l, changed: false }));
-
-  const renderLine = (line: { text: string; changed: boolean }, idx: number) => {
-    const t = line.text;
-    const isBlank = t.trim() === '';
-    const isAllCaps = t.trim().length > 2 && t.trim() === t.trim().toUpperCase() && /[A-Z]/.test(t);
-    const isBullet = /^\s*[•\-–*]\s/.test(t) || /^\s{2,}/.test(t);
-    const isContact = idx < 4 && (t.includes('@') || t.includes('|') || t.includes('linkedin'));
-    const isName = idx === 0 && t.trim().length > 0;
-
-    if (isBlank) return <div key={idx} className="h-2" />;
-
-    let className = "text-gray-700 text-[13px] leading-relaxed";
-    if (isName) className = "text-gray-900 text-xl font-bold mb-0.5";
-    else if (isContact) className = "text-gray-500 text-[11px]";
-    else if (isAllCaps) className = "text-gray-900 text-[12px] font-bold uppercase tracking-widest border-b border-gray-300 pb-0.5 mt-3 mb-1";
-    else if (isBullet) className = "text-gray-700 text-[12px] leading-relaxed pl-4";
-
-    const highlight = line.changed && showDiff
-      ? "bg-teal-100 border-l-2 border-teal-400 pl-1 rounded-sm text-teal-900"
-      : "";
-
-    return (
-      <div key={idx} className={`${className} ${highlight} transition-colors duration-500`}>
-        {t}
-      </div>
-    );
-  };
-
-  return (
-    <div className="relative">
-      {isProcessing && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/60 backdrop-blur-[2px] rounded">
-          <div className="w-8 h-8 rounded-full border-2 border-teal-400 border-t-transparent animate-spin mb-3" />
-          <p className="text-xs text-gray-500 font-medium">Analyzing…</p>
-        </div>
-      )}
-      <div className={`space-y-[2px] transition-opacity duration-300 ${isProcessing ? 'opacity-40' : 'opacity-100'}`}>
-        {lines.map((line, idx) => renderLine(line, idx))}
-      </div>
-    </div>
-  );
-}
-
 export default function ResumesPage() {
   const { user } = useAuthStore();
-  const [data, setData] = useState<any[]>([]);
-  const [candidates, setCandidates] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const invalidate = useInvalidateData();
+  const ready = useDataReady();
+  const { data, isPending, isError, error, isFetching, refetch, isFetched } = useResumes();
+  const resumes = data ?? [];
+  const { data: candidates = [] } = useCandidatesPicklist();
   const [candidateFilter, setCandidateFilter] = useState("all");
+  const [versionFilter, setVersionFilter] = useState("all");
+  const [customVersion, setCustomVersion] = useState("");
 
   // Upload dialog
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -106,49 +74,217 @@ export default function ResumesPage() {
   const [uploadText, setUploadText] = useState("");
   const [uploadVersionName, setUploadVersionName] = useState("Base Resume v1");
   const [isUploading, setIsUploading] = useState(false);
+  const [isParsingUpload, setIsParsingUpload] = useState(false);
 
   // Tailor mode
   const [tailorMode, setTailorMode] = useState(false);
-  const [tailorStep, setTailorStep] = useState<'setup' | 'processing' | 'result'>('setup');
+  const [tailorStep, setTailorStep] = useState<'setup' | 'processing' | 'revealing' | 'result'>('setup');
   const [tailorCandId, setTailorCandId] = useState("");
   const [jd, setJd] = useState("");
-  const [tailorResult, setTailorResult] = useState<any>(null);
+  const [tailorResult, setTailorResult] = useState<TailorResult | null>(null);
+  const [editableTailoredText, setEditableTailoredText] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [analysisStep, setAnalysisStep] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [aiPending, setAiPending] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [aiStatus, setAiStatus] = useState("");
+  const [debouncedJd, setDebouncedJd] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveReveal = useLiveTailorReveal();
 
-  // Selected resume for preview
-  const [previewResumeId, setPreviewResumeId] = useState<string | null>(null);
-
-  const loadAll = async () => {
-    setLoading(true);
-    try {
-      const [rRes, cRes] = await Promise.all([
-        supabase.from('resumes').select('*, candidates(full_name)').order('created_at', { ascending: false }),
-        candidateService.getAll(),
-      ]);
-      if (rRes.error) throw rRes.error;
-      setData(rRes.data || []);
-      setCandidates(cRes);
-    } catch (err: any) {
-      setError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedJd(jd), 320);
+    return () => clearTimeout(t);
+  }, [jd]);
 
   // Cleanup interval on unmount
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
-  const filteredData = candidateFilter === "all" ? data : data.filter(r => r.candidate_id === candidateFilter);
-  const previewResume = data.find(r => r.id === previewResumeId);
+  // Distinct version numbers present in the data (for the V1/V2/V3… options).
+  const availableVersions = useMemo(() => {
+    const nums = new Set<number>();
+    for (const r of resumes) {
+      if (typeof r.version_number === "number") nums.add(r.version_number);
+    }
+    return Array.from(nums).sort((a, b) => a - b);
+  }, [resumes]);
 
-  // Current tailor candidate's base resume
-  const tailorCandResumes = data.filter(r => r.candidate_id === tailorCandId);
-  const tailorBaseResume = tailorCandResumes.find(r => r.type === 'base') || tailorCandResumes[0];
+  const filteredData = useMemo(() => {
+    const custom = customVersion.trim().toLowerCase();
+    return resumes.filter((r) => {
+      if (candidateFilter !== "all" && r.candidate_id !== candidateFilter) return false;
+      if (versionFilter === "all") return true;
+      if (versionFilter === "base") return r.type === "base";
+      if (versionFilter === "custom") {
+        if (!custom) return true;
+        return (
+          (r.version_name?.toLowerCase().includes(custom) ?? false) ||
+          `v${r.version_number}` === custom ||
+          String(r.version_number) === custom ||
+          (r.type?.toLowerCase().includes(custom) ?? false)
+        );
+      }
+      if (versionFilter.startsWith("v")) {
+        return r.version_number === Number(versionFilter.slice(1));
+      }
+      return true;
+    });
+  }, [resumes, candidateFilter, versionFilter, customVersion]);
+
+  // Current tailor candidate's resume (user can pick version)
+  const tailorCandResumes = resumes.filter(r => r.candidate_id === tailorCandId);
+  const tailorBaseResume =
+    tailorCandResumes.find(r => r.id === selectedResumeId) ||
+    tailorCandResumes.find(r => r.type === 'base') ||
+    tailorCandResumes[0];
   const tailorCandName = candidates.find(c => c.id === tailorCandId)?.full_name || '';
+
+  const getResumeText = (resume: ResumeListRow | undefined) =>
+    resume?.raw_text?.trim() || resume?.summary?.trim() || '';
+
+  const originalTextForTailor = getResumeText(tailorBaseResume);
+  const [enrichedText, setEnrichedText] = useState("");
+  const [resumeLines, setResumeLines] = useState<ResumeLine[]>([]);
+
+  useEffect(() => {
+    if (!tailorMode || !tailorBaseResume) {
+      setEnrichedText("");
+      setResumeLines([]);
+      return;
+    }
+    const stored = originalTextForTailor;
+    if (tailorBaseResume.docx_file_url) {
+      extractResumeFromDocxUrl(tailorBaseResume.docx_file_url)
+        .then((r) => {
+          setEnrichedText(r.plainText || stored);
+          setResumeLines(r.lines ?? []);
+        })
+        .catch(() => {
+          setEnrichedText(stored);
+          setResumeLines([]);
+        });
+    } else {
+      setEnrichedText(stored);
+      setResumeLines([]);
+    }
+  }, [tailorMode, tailorBaseResume?.id, tailorBaseResume?.docx_file_url, originalTextForTailor]);
+
+  const resumeTextForTailor = enrichedText || originalTextForTailor;
+
+  /** Frozen once per resume — never derived from tailored/preview text. */
+  const [immutableSnapshot, setImmutableSnapshot] = useState<SourceResumeSnapshot | undefined>();
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+
+  useEffect(() => {
+    if (import.meta.env.DEV) enableResumeExportDebug();
+  }, []);
+
+  useEffect(() => {
+    if (!tailorMode || !tailorBaseResume) {
+      setImmutableSnapshot(undefined);
+      setSnapshotLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const stored = originalTextForTailor;
+    setSnapshotLoading(true);
+
+    async function loadImmutableSnapshot() {
+      try {
+        let docxPlain = "";
+        let docxParagraphs: string[] | undefined;
+        if (tailorBaseResume?.docx_file_url) {
+          const res = await fetch(tailorBaseResume.docx_file_url);
+          if (res.ok) {
+            const buffer = await res.arrayBuffer();
+            const extracted = await extractResumeFromDocxUrl(tailorBaseResume.docx_file_url);
+            docxPlain = extracted.plainText || "";
+            docxParagraphs = await extractDocxParagraphTexts(buffer);
+          }
+        }
+        if (cancelled) return;
+        setImmutableSnapshot(
+          createSourceResumeSnapshot(stored, {
+            storedText: stored,
+            docxPlainText: docxPlain,
+            docxParagraphs,
+            candidateNameHint: tailorCandName || undefined,
+          }),
+        );
+      } catch {
+        if (!cancelled) {
+          setImmutableSnapshot(
+            createSourceResumeSnapshot(stored, { candidateNameHint: tailorCandName || undefined }),
+          );
+        }
+      } finally {
+        if (!cancelled) setSnapshotLoading(false);
+      }
+    }
+
+    loadImmutableSnapshot();
+    return () => {
+      cancelled = true;
+    };
+  }, [tailorMode, tailorBaseResume?.id, tailorBaseResume?.docx_file_url, originalTextForTailor, tailorCandName]);
+  const previewTailoredText =
+    tailorResult && (tailorStep === 'revealing' || tailorStep === 'result')
+      ? editableTailoredText || buildTailoredText(resumeTextForTailor, tailorResult, jd)
+      : '';
+
+  const docPreview = useTailoredDocumentPreview(
+    tailorMode && previewTailoredText ? previewTailoredText : '',
+    editMode ? [] : (tailorResult?.sectionChanges ?? []),
+    tailorBaseResume?.docx_file_url,
+    resumeLines.length ? resumeLines : undefined,
+    tailorResult ?? undefined,
+    immutableSnapshot?.originalText,
+    jd,
+    immutableSnapshot,
+  );
+
+  const snapshotReady = !!immutableSnapshot && isValidSourceSnapshot(immutableSnapshot);
+
+  const tailoredTextForPreview =
+    editableTailoredText ||
+    (tailorResult ? buildTailoredText(resumeTextForTailor, tailorResult, jd) : '');
+
+  const sourceDocx = tailorBaseResume?.docx_file_url;
+  const { innerHtml: sourceDocxInner } = useSourceDocxInner(tailorMode ? sourceDocx : undefined);
+
+  const sourceDocxHtml = useMemo(
+    () => (sourceDocxInner ? wrapMammothInnerHtml(sourceDocxInner) : null),
+    [sourceDocxInner],
+  );
+
+  const tailoredDocxHtml = useMemo(() => {
+    if (docPreview.docxInnerHtml) return wrapMammothInnerHtml(docPreview.docxInnerHtml);
+    return sourceDocxHtml;
+  }, [docPreview.docxInnerHtml, sourceDocxHtml]);
+
+  const jdLivePreview = useMemo(
+    () => (tailorMode && originalTextForTailor ? computeJdMatchPreview(debouncedJd, originalTextForTailor) : null),
+    [tailorMode, debouncedJd, originalTextForTailor],
+  );
+
+  const jdHighlightNeedles = useMemo(() => {
+    if (!jdLivePreview) return [];
+    return [...jdLivePreview.impactMatched, ...jdLivePreview.matched.filter((m) => !jdLivePreview.impactMatched.includes(m))];
+  }, [jdLivePreview]);
+
+  // Auto-select base resume when candidate changes
+  useEffect(() => {
+    if (!tailorCandId) {
+      setSelectedResumeId("");
+      return;
+    }
+    const cResumes = resumes.filter(r => r.candidate_id === tailorCandId);
+    const base = cResumes.find(r => r.type === 'base') || cResumes[0];
+    setSelectedResumeId(base?.id || "");
+  }, [tailorCandId, resumes]);
 
   const startAnalysisAnimation = () => {
     setAnalysisStep(0);
@@ -166,101 +302,202 @@ export default function ResumesPage() {
   };
 
   const handleTailor = async () => {
+    if (aiPending) return;
     if (!tailorCandId) { toast.error("Select a candidate"); return; }
     if (!jd.trim()) { toast.error("Paste a job description"); return; }
-    if (!tailorBaseResume?.raw_text && !tailorBaseResume?.summary) {
-      toast.error("This candidate has no resume text. Upload a resume with pasted text first."); return;
+    const resumeText = resumeTextForTailor || getResumeText(tailorBaseResume);
+    if (!resumeText) {
+      toast.error("This candidate has no resume text. Upload a resume with pasted text first.");
+      return;
     }
     setTailorStep('processing');
+    setEditMode(false);
+    setAiPending(true);
+    setAiStatus("");
+    setTailorResult(null);
+    setEditableTailoredText("");
+    liveReveal.waitForAi(resumeText);
     startAnalysisAnimation();
     try {
-      const resumeText = tailorBaseResume.raw_text || tailorBaseResume.summary;
-      const res = await aiTailorResume(resumeText, jd, tailorCandName);
+      const res = await aiTailorResume(resumeText, jd, tailorCandName, (msg) => {
+        setAiStatus(msg);
+        if (msg) liveReveal.setThinkingMessage(msg);
+      });
       if (intervalRef.current) clearInterval(intervalRef.current);
       setAnalysisProgress(100);
-      await new Promise(r => setTimeout(r, 400));
       setTailorResult(res);
+      setTailorStep('revealing');
+      const final = await liveReveal.revealResult(resumeText, res, jd);
+      if (!final.trim()) {
+        throw new Error('Tailored resume is empty. Try running Analyze again.');
+      }
+      setEditableTailoredText(final);
       setTailorStep('result');
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      toast.error(err.message || "Tailoring failed");
+      liveReveal.cancel();
+      const message = err instanceof Error ? err.message : "Tailoring failed";
+      toast.error(message);
       setTailorStep('setup');
+    } finally {
+      setAiPending(false);
+      setAiStatus("");
     }
+  };
+
+  const downloadTailored = (format: 'pdf' | 'docx') => {
+    const text = tailoredTextForPreview;
+    if (!text.trim()) {
+      toast.error('No tailored resume to download.');
+      return;
+    }
+    if (snapshotLoading || !snapshotReady) {
+      toast.error('Original resume snapshot is still loading — wait a moment.');
+      return;
+    }
+    if (docPreview.error) {
+      toast.error(docPreview.error);
+      return;
+    }
+    const blob = format === 'pdf' ? docPreview.pdfBlob : docPreview.docxBlob;
+    if (format === 'pdf' && !docPreview.isPdfReady) {
+      toast.error('PDF is still generating — wait a moment.');
+      return;
+    }
+    if (format === 'docx' && !docPreview.isDocxReady) {
+      toast.error('DOCX is still generating — wait a moment.');
+      return;
+    }
+    if (!blob) {
+      toast.error('Document is still generating — wait a moment.');
+      return;
+    }
+    const safeName = safeFilename(tailorCandName || 'candidate');
+    const title = safeFilename(tailorResult?.suggestedTitle || 'tailored');
+    downloadBlob(blob, `${safeName}_${title}.${format}`);
+    toast.success(`${format.toUpperCase()} download started`);
   };
 
   const handleSaveTailored = async () => {
     if (!tailorCandId || !tailorResult) return;
+    const rawText = tailoredTextForPreview.trim();
+    if (!rawText) {
+      toast.error('No tailored content to save.');
+      return;
+    }
+
+    setIsSaving(true);
+    const savingToast = toast.loading('Saving tailored resume…');
     try {
-      await resumeService.create({
-        candidate_id: tailorCandId,
-        version_name: `${tailorResult.suggestedTitle || 'Tailored'} v${tailorCandResumes.length + 1}`,
-        version_number: tailorCandResumes.length + 1,
-        type: 'tailored',
-        job_title: tailorResult.suggestedTitle || '',
+      let createdBy = user?.id;
+      if (!createdBy) {
+        const { data: authData } = await withTimeout(supabase.auth.getUser(), 10_000, 'Auth check');
+        createdBy = authData.user?.id;
+      }
+      if (!createdBy) {
+        throw new Error('You must be logged in to save a resume version.');
+      }
+
+      let docxBlob = docPreview.docxBlob;
+      if (!docxBlob) {
+        toast.loading('Building DOCX…', { id: savingToast });
+        docxBlob = await withTimeout(buildTailoredDocxBlob(rawText), 30_000, 'DOCX build');
+      }
+
+      toast.loading('Saving to database…', { id: savingToast });
+      const saved = await resumeService.saveTailoredVersion({
+        candidateId: tailorCandId,
+        createdBy,
+        versionName: `${tailorResult.suggestedTitle || 'Tailored'} v${tailorCandResumes.length + 1}`,
+        versionNumber: tailorCandResumes.length + 1,
+        jobTitle: tailorResult.suggestedTitle || '',
         summary: tailorResult.optimizedSummary || '',
         skills: tailorResult.optimizedSkills || [],
-        experience: [],
-        raw_text: tailorResult.tailoredResumeText || '',
-        added_keywords: tailorResult.addedKeywords || [],
-        match_score_before: tailorResult.matchScoreBefore,
-        match_score_after: tailorResult.matchScoreAfter,
-        jd_snapshot: jd,
-        is_active: false,
-        created_by: user?.id || '',
+        rawText,
+        docxBlob,
+        pdfBlob: docPreview.pdfBlob,
+        addedKeywords: tailorResult.addedKeywords || [],
+        matchScoreBefore: tailorResult.matchScoreBefore,
+        matchScoreAfter: tailorResult.matchScoreAfter,
+        jdSnapshot: jd,
       });
-      toast.success("Tailored resume saved");
+
+      const hasFiles = saved.docx_file_url || saved.pdf_file_url;
+      toast.success(
+        hasFiles ? 'Tailored resume saved (text + files)' : 'Tailored resume saved (text only — file upload failed)',
+        { id: savingToast },
+      );
+
       setTailorMode(false);
       setTailorStep('setup');
       setTailorResult(null);
+      setEditableTailoredText('');
+      setEditMode(false);
       setJd('');
-      loadAll();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save");
+      invalidate.resumes();
+      invalidate.candidates();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      toast.error(message, { id: savingToast });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUploadFilePick = async (file: File | null) => {
+    if (!file) {
+      setUploadFile(null);
+      return;
+    }
+    if (!isResumeFile(file)) {
+      toast.error('Only PDF and DOCX files are supported.');
+      return;
+    }
+    setUploadFile(file);
+    setIsParsingUpload(true);
+    try {
+      const extracted = await extractResumeContent(file);
+      const candName = candidates.find((c) => c.id === uploadCandId)?.full_name ?? '';
+      let docxParagraphs: string[] | undefined;
+      if (file.name.toLowerCase().endsWith('.docx')) {
+        docxParagraphs = await extractDocxParagraphTexts(await file.arrayBuffer());
+      }
+      const immutableText = pickImmutableSourceText(
+        extracted.plainText,
+        extracted.plainText,
+        docxParagraphs,
+        candName || undefined,
+      );
+      setUploadText(immutableText);
+      toast.success('Resume text extracted — ready for AI tailoring.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Could not read resume file.');
+      setUploadFile(null);
+      setUploadText('');
+    } finally {
+      setIsParsingUpload(false);
     }
   };
 
   const handleUpload = async () => {
     if (!uploadCandId) { toast.error("Select a candidate"); return; }
-    if (!uploadFile && !uploadText.trim()) { toast.error("Provide a file or paste resume text"); return; }
+    if (!uploadFile) { toast.error("Upload a PDF or DOCX resume"); return; }
+    if (!uploadText.trim()) { toast.error("Could not extract text from file — try another resume"); return; }
     setIsUploading(true);
     try {
-      let pdfUrl: string | undefined;
-      let docxUrl: string | undefined;
-      if (uploadFile) {
-        const ext = uploadFile.name.split('.').pop()?.toLowerCase();
-        const path = `${uploadCandId}/${Date.now()}-${uploadFile.name}`;
-        const { data: storageData, error: storageErr } = await supabase.storage
-          .from('resumes')
-          .upload(path, uploadFile, { cacheControl: '3600', upsert: false });
-        if (storageErr) {
-          if (storageErr.message?.includes('Bucket not found') || storageErr.message?.includes('does not exist')) {
-            toast.error("Storage bucket 'resumes' not found. Create it in Supabase Storage first (Settings → Storage → New Bucket → name: resumes → Public: ON).");
-            setIsUploading(false);
-            return;
-          }
-          throw storageErr;
-        }
-        const { data: { publicUrl } } = supabase.storage.from('resumes').getPublicUrl(storageData.path);
-        if (ext === 'pdf') pdfUrl = publicUrl;
-        if (ext === 'docx' || ext === 'doc') docxUrl = publicUrl;
-      }
+      const { pdfUrl, docxUrl } = await uploadResumeFile(uploadCandId, uploadFile);
 
-      let rawText = uploadText.trim();
-      if (!rawText && uploadFile && uploadFile.type === 'text/plain') {
-        rawText = await uploadFile.text();
-      }
-
-      const cResumes = data.filter(r => r.candidate_id === uploadCandId);
+      const cResumes = resumes.filter(r => r.candidate_id === uploadCandId);
       await resumeService.create({
         candidate_id: uploadCandId,
         version_name: uploadVersionName || 'Base Resume v1',
         version_number: cResumes.length + 1,
         type: 'base',
         job_title: candidates.find(c => c.id === uploadCandId)?.target_roles?.[0] || '',
-        summary: rawText.slice(0, 500),
+        summary: uploadText.slice(0, 500),
         skills: candidates.find(c => c.id === uploadCandId)?.skills || [],
         experience: [],
-        raw_text: rawText,
+        raw_text: uploadText.trim(),
         pdf_file_url: pdfUrl,
         docx_file_url: docxUrl,
         is_active: true,
@@ -272,9 +509,10 @@ export default function ResumesPage() {
       setUploadText('');
       setUploadCandId('');
       setUploadVersionName('Base Resume v1');
-      loadAll();
-    } catch (err: any) {
-      toast.error(err.message || "Upload failed");
+      invalidate.resumes();
+      invalidate.candidates();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setIsUploading(false);
     }
@@ -282,260 +520,478 @@ export default function ResumesPage() {
 
   // ─── TAILOR SPLIT-SCREEN MODE ────────────────────────────────────────────────
   if (tailorMode) {
-    const originalText = tailorBaseResume?.raw_text || tailorBaseResume?.summary || '';
-    const tailoredText = tailorResult?.tailoredResumeText || '';
-    const showDiff = tailorStep === 'result' && !!tailoredText;
+    const originalText = resumeTextForTailor;
+    const hasPdf = !!tailorBaseResume?.pdf_file_url;
+    const hasDocx = !!tailorBaseResume?.docx_file_url;
+    const resumeTextReady = originalText.length > 0;
+    const showLiveJdPreview = tailorStep === 'setup';
+    const isAiWorking = tailorStep === 'processing' || tailorStep === 'revealing';
+    const resultHighlightNeedles =
+      tailorResult?.sectionChanges.map((c) => c.tailored).filter(Boolean) ?? liveReveal.highlightNeedles;
 
     return (
-      <div className="flex h-[calc(100vh-7rem)] -m-4 sm:-m-6 lg:-m-8 overflow-hidden">
+      <div className="flex h-[calc(100vh-7rem)] -m-4 sm:-m-6 lg:-m-8 overflow-hidden flex-col">
 
-        {/* ── LEFT SIDEBAR ── */}
-        <div className="w-[400px] flex-shrink-0 flex flex-col bg-card border-r border-border overflow-y-auto">
-          <div className="p-4 border-b border-border flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTailorMode(false); setTailorStep('setup'); setTailorResult(null); setJd(''); }}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <h2 className="text-sm font-bold text-foreground">AI Resume Tailor</h2>
-              <p className="text-[11px] text-muted-foreground">Text-only optimization · Structure preserved</p>
-            </div>
-            <div className="ml-auto">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                tailorStep === 'setup' ? 'bg-muted text-muted-foreground' :
-                tailorStep === 'processing' ? 'bg-yellow-500/20 text-yellow-400' :
-                'bg-teal-500/20 text-teal-400'
-              }`}>
-                {tailorStep === 'setup' ? 'Setup' : tailorStep === 'processing' ? 'Analyzing' : 'Complete'}
-              </span>
-            </div>
+        {/* Top bar */}
+        <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2 bg-card border-b border-border">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { liveReveal.cancel(); setTailorMode(false); setTailorStep('setup'); setTailorResult(null); setEditableTailoredText(""); setEditMode(false); setJd(''); }}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h2 className="text-sm font-bold text-foreground">AI Resume Tailor</h2>
+            <p className="text-[11px] text-muted-foreground">Left = your upload · Right = same layout with AI edits (matches Word when DOCX)</p>
           </div>
-
-          <div className="flex-1 p-4 space-y-5">
-            {/* STEP 1: SETUP */}
-            {tailorStep === 'setup' && (
-              <>
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1. Select Candidate</Label>
-                  <Select value={tailorCandId} onValueChange={setTailorCandId}>
-                    <SelectTrigger className="bg-background border-border"><SelectValue placeholder="Choose candidate…" /></SelectTrigger>
-                    <SelectContent>
-                      {candidates.map(c => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  {tailorCandId && !tailorBaseResume && (
-                    <p className="text-[11px] text-yellow-400 bg-yellow-500/10 rounded p-2 border border-yellow-500/20">
-                      ⚠ No resume found for this candidate. Upload one first.
-                    </p>
-                  )}
-                  {tailorCandId && tailorBaseResume && !tailorBaseResume.raw_text && !tailorBaseResume.summary && (
-                    <p className="text-[11px] text-yellow-400 bg-yellow-500/10 rounded p-2 border border-yellow-500/20">
-                      ⚠ Resume has no text content. Re-upload with text pasted in.
-                    </p>
-                  )}
-                  {tailorCandId && tailorBaseResume?.raw_text && (
-                    <p className="text-[11px] text-teal-400 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" /> Resume text loaded — {tailorBaseResume.raw_text.length} chars
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">2. Paste Job Description</Label>
-                  <Textarea
-                    placeholder="Paste the full job description here — include requirements, responsibilities, and qualifications for best results…"
-                    className="min-h-[220px] text-xs bg-background font-mono resize-none"
-                    value={jd}
-                    onChange={e => setJd(e.target.value)}
-                  />
-                  {jd.length > 0 && (
-                    <p className="text-[11px] text-muted-foreground">{jd.length} chars · {jd.split(/\s+/).length} words</p>
-                  )}
-                </div>
-
-                <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-1.5 text-[11px] text-muted-foreground">
-                  <p className="font-semibold text-foreground text-xs">What the AI will do:</p>
-                  <p>• Rephrase bullet points to weave in missing keywords naturally</p>
-                  <p>• Rewrite the professional summary to match the target role</p>
-                  <p>• Adjust the skills section for ATS keyword matching</p>
-                  <p className="text-yellow-400">• Will NOT change structure, dates, company names, or bullet count</p>
-                </div>
-
-                <Button
-                  className="w-full bg-primary text-primary-foreground"
-                  onClick={handleTailor}
-                  disabled={!tailorCandId || !jd.trim() || !tailorBaseResume?.raw_text}
-                >
-                  <Sparkles className="w-4 h-4 mr-2" /> Analyze & Tailor Resume
-                </Button>
-              </>
-            )}
-
-            {/* STEP 2: PROCESSING */}
-            {tailorStep === 'processing' && (
-              <div className="space-y-5">
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-muted-foreground font-medium">Analysis progress</span>
-                    <span className="text-primary font-bold">{analysisProgress}%</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all duration-700"
-                      style={{ width: `${analysisProgress}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {ANALYSIS_STEPS.slice(0, analysisStep + 1).map((step, i) => (
-                    <div key={i} className={`flex items-start gap-2.5 text-[12px] transition-opacity duration-500 ${i === analysisStep ? 'opacity-100' : 'opacity-40'}`}>
-                      <div className={`w-4 h-4 rounded-full flex-shrink-0 mt-0.5 flex items-center justify-center ${i < analysisStep ? 'bg-teal-500/20' : i === analysisStep ? 'border border-primary' : 'bg-muted'}`}>
-                        {i < analysisStep && <CheckCircle className="w-3 h-3 text-teal-400" />}
-                        {i === analysisStep && <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
-                      </div>
-                      <span className={i === analysisStep ? 'text-foreground font-medium' : 'text-muted-foreground'}>{step.msg}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-400">
-                  <p className="font-semibold mb-1">Live preview on the right</p>
-                  <p>The resume document will update with highlighted changes once analysis is complete.</p>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 3: RESULT */}
-            {tailorStep === 'result' && tailorResult && (
-              <div className="space-y-4">
-                {/* Score */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-background rounded-lg border border-border p-3 text-center">
-                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">Before</div>
-                    <div className="text-3xl font-display font-bold text-destructive">{tailorResult.matchScoreBefore}%</div>
-                    <div className="text-[10px] text-muted-foreground">ATS Match</div>
-                  </div>
-                  <div className="bg-background rounded-lg border border-primary/30 p-3 text-center">
-                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">After</div>
-                    <div className="text-3xl font-display font-bold text-primary">{tailorResult.matchScoreAfter}%</div>
-                    <div className="text-[10px] text-muted-foreground">ATS Match</div>
-                  </div>
-                </div>
-
-                {/* Suggested title */}
-                {tailorResult.suggestedTitle && (
-                  <div className="bg-teal-500/10 border border-teal-500/20 rounded-md p-2.5">
-                    <span className="text-[10px] uppercase font-bold text-teal-400 tracking-wider">Suggested Title</span>
-                    <p className="text-sm font-semibold text-foreground mt-0.5">{tailorResult.suggestedTitle}</p>
-                  </div>
+          <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+            tailorStep === 'setup' ? 'bg-muted text-muted-foreground' :
+            tailorStep === 'processing' ? 'bg-yellow-500/20 text-yellow-400' :
+            tailorStep === 'revealing' ? 'bg-teal-500/20 text-teal-400 animate-pulse' :
+            'bg-teal-500/20 text-teal-400'
+          }`}>
+            {tailorStep === 'setup' ? 'Setup' : tailorStep === 'processing' ? 'Thinking…' : tailorStep === 'revealing' ? 'Editing live' : 'Complete'}
+          </span>
+          {tailorStep === 'result' && (
+            <div className="ml-auto flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => downloadTailored('pdf')} disabled={!docPreview.isPdfReady}>
+                <Download className="w-3 h-3 mr-1" /> PDF
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => downloadTailored('docx')} disabled={!docPreview.isDocxReady}>
+                <Download className="w-3 h-3 mr-1" /> DOCX
+              </Button>
+              <Button
+                variant={editMode ? "default" : "outline"}
+                size="sm"
+                className="text-xs h-8"
+                onClick={() => setEditMode(v => !v)}
+              >
+                {editMode ? "Preview only" : "Edit & preview"}
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setTailorStep('setup'); setTailorResult(null); setEditableTailoredText(""); setEditMode(false); }}>
+                <RotateCcw className="w-3 h-3 mr-1" /> Re-run
+              </Button>
+              <Button
+                size="sm"
+                className="text-xs h-8 bg-primary"
+                onClick={handleSaveTailored}
+                disabled={isSaving || !tailoredTextForPreview.trim()}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                ) : (
+                  <Save className="w-3 h-3 mr-1" />
                 )}
-
-                {/* Keywords */}
-                <div className="space-y-2.5">
-                  <div>
-                    <p className="text-[10px] uppercase font-bold text-destructive tracking-wider mb-1.5">Identified Missing</p>
-                    <div className="flex flex-wrap gap-1">
-                      {tailorResult.missingKeywords?.map((k: string) => (
-                        <span key={k} className="px-1.5 py-0.5 bg-destructive/10 text-destructive text-[10px] rounded border border-destructive/20">{k}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase font-bold text-teal-400 tracking-wider mb-1.5">Added to Resume</p>
-                    <div className="flex flex-wrap gap-1">
-                      {tailorResult.addedKeywords?.map((k: string) => (
-                        <span key={k} className="px-1.5 py-0.5 bg-teal-500/10 text-teal-400 text-[10px] rounded border border-teal-500/20">{k}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Changes summary */}
-                {tailorResult.sectionChanges?.length > 0 && (
-                  <div>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1.5">Changes Made ({tailorResult.sectionChanges.length})</p>
-                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
-                      {tailorResult.sectionChanges.map((c: any, i: number) => (
-                        <div key={i} className="text-[11px] bg-background border border-border rounded p-2">
-                          <span className="font-semibold text-muted-foreground">{c.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* ATS Warnings */}
-                {tailorResult.atsWarnings?.length > 0 && (
-                  <div className="p-2.5 rounded bg-yellow-500/10 border border-yellow-500/20">
-                    <p className="text-[10px] uppercase font-bold text-yellow-400 tracking-wider mb-1">ATS Warnings</p>
-                    {tailorResult.atsWarnings.map((w: string, i: number) => (
-                      <p key={i} className="text-[11px] text-yellow-300 flex gap-1.5"><AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />{w}</p>
-                    ))}
-                  </div>
-                )}
-
-                {/* Feedback */}
-                {tailorResult.overallFeedback && (
-                  <div className="p-2.5 rounded bg-blue-500/10 border border-blue-500/20">
-                    <p className="text-[10px] uppercase font-bold text-blue-400 tracking-wider mb-1">Coach Feedback</p>
-                    <p className="text-[11px] text-blue-300">{tailorResult.overallFeedback}</p>
-                  </div>
-                )}
-
-                <div className="flex gap-2 pt-1">
-                  <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => { setTailorStep('setup'); setTailorResult(null); }}>
-                    <RotateCcw className="w-3 h-3 mr-1" /> Re-run
-                  </Button>
-                  <Button size="sm" className="flex-1 text-xs bg-primary" onClick={handleSaveTailored}>
-                    <Save className="w-3 h-3 mr-1" /> Save Version
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
+                {isSaving ? 'Saving…' : 'Save Version'}
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* ── RIGHT RESUME PANEL ── */}
-        <div className="flex-1 overflow-auto bg-gray-100 dark:bg-gray-200">
-          <div className="sticky top-0 z-10 bg-gray-200 border-b border-gray-300 px-6 py-2 flex items-center justify-between text-xs text-gray-600">
-            <div className="flex items-center gap-2">
-              <FileText className="w-3.5 h-3.5" />
-              <span className="font-medium">{tailorCandName || 'Select a candidate'}</span>
-              {tailorBaseResume && <span className="text-gray-400">· {tailorBaseResume.version_name}</span>}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Controls sidebar */}
+          <div className="w-[340px] flex-shrink-0 flex flex-col bg-card border-r border-border overflow-y-auto">
+            <div className="flex-1 p-4 space-y-4">
+              {tailorStep === 'setup' && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Candidate</Label>
+                    <Select value={tailorCandId} onValueChange={setTailorCandId}>
+                      <SelectTrigger className="bg-background border-border"><SelectValue placeholder="Choose candidate…" /></SelectTrigger>
+                      <SelectContent>
+                        {candidates.map(c => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {tailorCandId && tailorCandResumes.length > 1 && (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resume Version</Label>
+                      <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
+                        <SelectTrigger className="bg-background border-border"><SelectValue placeholder="Select resume…" /></SelectTrigger>
+                        <SelectContent>
+                          {tailorCandResumes.map(r => (
+                            <SelectItem key={r.id} value={r.id}>{r.version_name} ({r.type})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {tailorCandId && !tailorBaseResume && (
+                    <p className="text-[11px] text-yellow-400 bg-yellow-500/10 rounded p-2 border border-yellow-500/20">
+                      No resume found. Upload a PDF or DOCX first.
+                    </p>
+                  )}
+                  {tailorCandId && tailorBaseResume && !resumeTextReady && (
+                    <p className="text-[11px] text-yellow-400 bg-yellow-500/10 rounded p-2 border border-yellow-500/20">
+                      Resume has no extracted text. Re-upload the PDF or DOCX file.
+                    </p>
+                  )}
+                  {resumeTextReady && (
+                    <p className="text-[11px] text-teal-400 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> {originalText.length} chars · {hasPdf ? 'PDF' : hasDocx ? 'DOCX' : 'text'} on file
+                    </p>
+                  )}
+
+                  {jdLivePreview && jd.trim() && (
+                    <div className="rounded-lg border border-border bg-background p-3 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">ATS keyword match</span>
+                        <span className={`text-lg font-bold ${jdLivePreview.score >= 60 ? 'text-teal-400' : jdLivePreview.score >= 40 ? 'text-yellow-400' : 'text-destructive'}`}>
+                          {jdLivePreview.totalKeywords > 0 ? `${jdLivePreview.score}%` : '—'}
+                        </span>
+                      </div>
+
+                      {jdLivePreview.impactMatched.length > 0 && (
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-amber-400 mb-1">High-impact matched</p>
+                          <div className="flex flex-wrap gap-1">
+                            {jdLivePreview.impactMatched.slice(0, 10).map((k) => (
+                              <span key={k} className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-200 border border-amber-500/30">{k}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {jdLivePreview.impactMissing.length > 0 && (
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-red-400 mb-1">High-impact missing — add these</p>
+                          <div className="flex flex-wrap gap-1">
+                            {jdLivePreview.impactMissing.slice(0, 8).map((k) => (
+                              <span key={k} className="px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-300 border border-red-500/25">{k}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {jdLivePreview.mustHaveMissing.length > 0 && (
+                        <p className="text-[10px] text-yellow-400">
+                          Required gaps: {jdLivePreview.mustHaveMissing.slice(0, 5).join(', ')}
+                        </p>
+                      )}
+
+                      <div className="border-t border-border pt-2 space-y-1">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">Recruiter tips</p>
+                        {jdLivePreview.recruiterTips.map((tip, i) => (
+                          <p key={i} className="text-[10px] text-muted-foreground leading-snug">• {tip}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Job Description</Label>
+                    <Textarea
+                      placeholder="Paste the full job description… (right panel updates as you type)"
+                      className="min-h-[180px] text-xs bg-background font-mono resize-none"
+                      value={jd}
+                      onChange={e => setJd(e.target.value)}
+                    />
+                  </div>
+
+                  <Button
+                    className="w-full bg-primary text-primary-foreground"
+                    onClick={handleTailor}
+                    disabled={!tailorCandId || !jd.trim() || !resumeTextReady || aiPending}
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" /> Analyze & Tailor
+                  </Button>
+                </>
+              )}
+
+              {tailorStep === 'processing' && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-xs mb-1.5">
+                      <span className="text-muted-foreground font-medium">Progress</span>
+                      <span className="text-primary font-bold">{analysisProgress}%</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary rounded-full transition-all duration-700" style={{ width: `${analysisProgress}%` }} />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-teal-400 italic">
+                    {liveReveal.thinkingMessage || aiStatus || 'AI is thinking… watch the bubble on your resume →'}
+                  </p>
+                  <div className="space-y-2">
+                    {ANALYSIS_STEPS.slice(0, analysisStep + 1).map((step, i) => (
+                      <div key={i} className={`flex items-start gap-2 text-[12px] ${i === analysisStep ? 'opacity-100' : 'opacity-50'}`}>
+                        {i < analysisStep ? <CheckCircle className="w-3.5 h-3.5 text-teal-400 mt-0.5" /> : <div className="w-3.5 h-3.5 rounded-full border border-primary mt-0.5" />}
+                        <span>{step.msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {tailorStep === 'revealing' && (
+                <div className="space-y-3">
+                  <p className="text-[11px] text-teal-400 font-medium">Applying edits one by one — {liveReveal.appliedChanges.length} done</p>
+                  <p className="text-[11px] text-muted-foreground italic">{liveReveal.thinkingMessage}</p>
+                </div>
+              )}
+
+              {tailorStep === 'result' && tailorResult && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-background rounded-lg border border-border p-2 text-center">
+                      <div className="text-[10px] text-muted-foreground uppercase font-bold">Before</div>
+                      <div className="text-2xl font-display font-bold text-destructive">{tailorResult.matchScoreBefore}%</div>
+                    </div>
+                    <div className="bg-background rounded-lg border border-primary/30 p-2 text-center">
+                      <div className="text-[10px] text-muted-foreground uppercase font-bold">After</div>
+                      <div className="text-2xl font-display font-bold text-primary">{tailorResult.matchScoreAfter}%</div>
+                    </div>
+                  </div>
+
+                  {tailorResult.suggestedTitle && (
+                    <div className="bg-teal-500/10 border border-teal-500/20 rounded p-2">
+                      <span className="text-[10px] uppercase font-bold text-teal-400">Suggested Title</span>
+                      <p className="text-sm font-semibold mt-0.5">{tailorResult.suggestedTitle}</p>
+                    </div>
+                  )}
+
+                  {tailorResult.sectionChanges?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1.5">
+                        Edits ({tailorResult.sectionChanges.length})
+                      </p>
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {tailorResult.sectionChanges.map((c, i) => (
+                          <div key={i} className="text-[11px] bg-background border border-border rounded p-2 space-y-1">
+                            <p className="font-semibold text-muted-foreground">{c.label}</p>
+                            <p className="text-destructive/80 line-through opacity-70">{c.original?.slice(0, 100)}{c.original?.length > 100 ? '…' : ''}</p>
+                            <p className="text-teal-400">{c.tailored?.slice(0, 100)}{c.tailored?.length > 100 ? '…' : ''}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {tailorResult.addedKeywords?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-teal-400 mb-1">Keywords AI will add</p>
+                      <div className="flex flex-wrap gap-1">
+                        {tailorResult.addedKeywords.slice(0, 12).map((k) => (
+                          <span key={k} className="px-1.5 py-0.5 rounded text-[10px] bg-teal-500/20 text-teal-200 border border-teal-500/30">{k}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {tailorResult.atsWarnings?.length > 0 && (
+                    <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-[11px] text-yellow-300 space-y-1">
+                      {tailorResult.atsWarnings.map((w, i) => (
+                        <p key={i}>⚠ {w}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  {tailorResult.overallFeedback && (
+                    <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-300">
+                      {tailorResult.overallFeedback}
+                    </div>
+                  )}
+
+                  {tailorResult.tailoringSummary && (
+                    <div className="rounded-lg border border-border bg-background p-3 space-y-2">
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground">Tailoring summary</p>
+                      {tailorResult.tailoringSummary.jdTitle && (
+                        <p className="text-[11px] text-foreground">
+                          <span className="text-muted-foreground">Target role (kept out of skills/bullets): </span>
+                          {tailorResult.tailoringSummary.jdTitle}
+                        </p>
+                      )}
+                      {tailorResult.tailoringSummary.sectionsUpdated.length > 0 && (
+                        <p className="text-[11px] text-foreground">
+                          <span className="text-muted-foreground">Updated: </span>
+                          {tailorResult.tailoringSummary.sectionsUpdated.join(', ')}
+                        </p>
+                      )}
+                      {tailorResult.tailoringSummary.skillsPreserved.length > 0 && (
+                        <p className="text-[11px] text-foreground">
+                          <span className="text-muted-foreground">Skill categories kept: </span>
+                          {tailorResult.tailoringSummary.skillsPreserved.join(', ')}
+                        </p>
+                      )}
+                      {tailorResult.tailoringSummary.unsupportedNotAdded.length > 0 && (
+                        <p className="text-[11px] text-yellow-300">
+                          <span className="text-muted-foreground">Not added (unsupported): </span>
+                          {tailorResult.tailoringSummary.unsupportedNotAdded.slice(0, 8).join(', ')}
+                        </p>
+                      )}
+                      <div className="border-t border-border pt-2 space-y-1">
+                        <p className="text-[10px] uppercase font-bold text-muted-foreground">
+                          Structure validation {tailorResult.tailoringSummary.validation.passed ? '✓' : '— trimmed'}
+                        </p>
+                        {tailorResult.tailoringSummary.validation.checks.map((c) => (
+                          <p key={c.id} className={`text-[10px] ${c.passed ? 'text-teal-400' : 'text-yellow-400'}`}>
+                            {c.passed ? '✓' : '○'} {c.label}{c.detail ? ` (${c.detail})` : ''}
+                          </p>
+                        ))}
+                      </div>
+                      {hasDocx && docPreview.docxSummaryValidation && (
+                        <div className="border-t border-border pt-2 space-y-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground">
+                            DOCX summary {docPreview.docxSummaryValidation.passed ? '✓' : '— not applied'}
+                          </p>
+                          <p className={`text-[10px] ${docPreview.docxSummaryValidation.passed ? 'text-teal-400' : 'text-yellow-400'}`}>
+                            {docPreview.docxSummaryValidation.passed ? '✓' : '○'} {docPreview.docxSummaryValidation.detail}
+                          </p>
+                        </div>
+                      )}
+                      {hasDocx && docPreview.docxTitleValidation && tailorResult?.suggestedTitle?.trim() && (
+                        <div className="border-t border-border pt-2 space-y-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground">
+                            DOCX header {docPreview.docxTitleValidation.passed ? '✓' : '— not applied'}
+                          </p>
+                          <p className={`text-[10px] ${docPreview.docxTitleValidation.passed ? 'text-teal-400' : 'text-yellow-400'}`}>
+                            {docPreview.docxTitleValidation.passed ? '✓' : '○'} {docPreview.docxTitleValidation.detail}
+                          </p>
+                          {!docPreview.docxTitleValidation.passed && (
+                            <p className="text-[10px] text-muted-foreground">
+                              title {docPreview.docxTitleValidation.hasTitleLine ? '✓' : '○'} ({docPreview.docxTitleValidation.titleLineCount ?? 0} lines) · block {docPreview.docxTitleValidation.headerBlockExact ? '✓' : '○'} · name first {docPreview.docxTitleValidation.nameFirst !== false ? '✓' : '○'} · location {docPreview.docxTitleValidation.hasLocation ? '✓' : '○'} · contact {docPreview.docxTitleValidation.hasContactLine ? '✓' : '○'} ({docPreview.docxTitleValidation.contactLineCount ?? 0} lines) · old title {docPreview.docxTitleValidation.oldTitleLeaked ? '○ leaked' : '✓'} · dup title {docPreview.docxTitleValidation.titleDuplicated ? '○' : '✓'} · extra lines {docPreview.docxTitleValidation.headerExtraLines === 0 ? '✓' : docPreview.docxTitleValidation.headerExtraLines} · certs {docPreview.docxTitleValidation.certsPreserved ? '✓' : '○'} · empty bullets {docPreview.docxTitleValidation.emptyBulletCount === 0 ? '✓' : docPreview.docxTitleValidation.emptyBulletCount}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {hasDocx &&
+                        docPreview.docxSkillsValidation &&
+                        tailorResult?.tailoringSummary?.sectionsUpdated.some((s) => /skill/i.test(s)) && (
+                        <div className="border-t border-border pt-2 space-y-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground">
+                            DOCX skills {docPreview.docxSkillsValidation.passed ? '✓' : '— not applied'}
+                          </p>
+                          <p className={`text-[10px] ${docPreview.docxSkillsValidation.passed ? 'text-teal-400' : 'text-yellow-400'}`}>
+                            {docPreview.docxSkillsValidation.passed ? '✓' : '○'} {docPreview.docxSkillsValidation.detail}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => downloadTailored('pdf')} disabled={!docPreview.isPdfReady}>
+                      <Download className="w-3 h-3 mr-1" /> PDF
+                    </Button>
+                    <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => downloadTailored('docx')} disabled={!docPreview.isDocxReady}>
+                      <Download className="w-3 h-3 mr-1" /> DOCX
+                    </Button>
+                  </div>
+                  {hasDocx && (
+                    <p className="text-[10px] text-muted-foreground">DOCX is patched from your uploaded file when possible.</p>
+                  )}
+                </div>
+              )}
             </div>
-            {tailorStep === 'result' && (
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-teal-100 border border-teal-400 inline-block" />
-                <span>Highlighted = AI edited text</span>
-              </div>
-            )}
           </div>
 
-          <div className="p-8 flex justify-center">
+          {/* Side-by-side document panels */}
+          <div className="flex-1 flex min-w-0 bg-gray-200">
             {!tailorCandId ? (
-              <div className="max-w-[816px] w-full bg-white shadow-xl rounded min-h-[600px] flex items-center justify-center">
-                <div className="text-center text-gray-400">
-                  <FileText className="w-12 h-12 mx-auto mb-3 text-gray-200" />
-                  <p className="text-sm font-medium">Select a candidate to preview their resume</p>
-                </div>
+              <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
+                Select a candidate to preview their resume
               </div>
-            ) : !tailorBaseResume || (!tailorBaseResume.raw_text && !tailorBaseResume.summary) ? (
-              <div className="max-w-[816px] w-full bg-white shadow-xl rounded min-h-[600px] flex items-center justify-center">
-                <div className="text-center text-gray-400 p-8">
-                  <Upload className="w-10 h-10 mx-auto mb-3 text-gray-200" />
-                  <p className="text-sm font-medium text-gray-500 mb-1">No resume text available</p>
-                  <p className="text-xs text-gray-400">Upload this candidate's resume with the text pasted in so the AI can work with it.</p>
-                </div>
+            ) : !tailorBaseResume ? (
+              <div className="flex-1 flex items-center justify-center text-gray-500 text-sm p-8 text-center">
+                No resume on file — upload a PDF or DOCX first
               </div>
             ) : (
-              <div className="max-w-[816px] w-full bg-white shadow-xl rounded p-[52px] font-['Times_New_Roman',serif]">
-                <ResumeDocument
-                  text={originalText}
-                  tailoredText={tailorStep === 'result' ? tailoredText : undefined}
-                  isProcessing={tailorStep === 'processing'}
-                  showDiff={tailorStep === 'result'}
-                />
-              </div>
+              <>
+                {/* LEFT: exact uploaded file */}
+                <div className="flex-1 min-w-0 flex flex-col border-r border-gray-300 bg-white shadow-inner">
+                  {hasDocx && sourceDocxHtml ? (
+                    <ResumeHtmlPreview html={sourceDocxHtml} label="Original (uploaded DOCX)" />
+                  ) : hasPdf ? (
+                    <ResumePdfPreview url={tailorBaseResume.pdf_file_url!} label="Original (uploaded PDF)" />
+                  ) : (
+                    <FaithfulResumeView
+                      text={originalText || "No text extracted — re-upload PDF or DOCX."}
+                      label="Original Resume"
+                    />
+                  )}
+                </div>
+
+                {/* RIGHT: same format as upload — DOCX HTML from patched file, or faithful lines for PDF */}
+                <div className="flex-1 min-w-0 flex flex-col bg-white shadow-inner relative">
+                  {showLiveJdPreview && !sourceDocx && (
+                    <FaithfulResumeView
+                      text={originalText}
+                      label="Live JD match (updates as you type)"
+                      highlightNeedles={jdHighlightNeedles}
+                    />
+                  )}
+
+                  {showLiveJdPreview && sourceDocx && sourceDocxHtml && (
+                    <ResumeHtmlPreview html={sourceDocxHtml} label="Live JD match — your Word layout" />
+                  )}
+
+                  {isAiWorking && sourceDocx && tailorStep === 'processing' && (
+                    <div className="relative flex-1 min-h-0">
+                      <ResumeHtmlPreview
+                        html={sourceDocxHtml}
+                        label="AI thinking… (your Word layout)"
+                        emptyMessage="Loading…"
+                      />
+                      {liveReveal.thinkingMessage && (
+                        <AiThinkingBubble message={liveReveal.thinkingMessage} />
+                      )}
+                    </div>
+                  )}
+
+                  {isAiWorking && sourceDocx && tailorStep === 'revealing' && (
+                    <div className="relative flex-1 min-h-0">
+                      <FaithfulResumeView
+                        text={liveReveal.liveText || resumeTextForTailor}
+                        label="AI editing live"
+                        highlightNeedles={liveReveal.highlightNeedles}
+                        pendingChange={liveReveal.pendingChange}
+                        thinkingMessage={liveReveal.thinkingMessage}
+                        showCursor={!!liveReveal.pendingChange}
+                      />
+                    </div>
+                  )}
+
+                  {isAiWorking && !sourceDocx && (
+                    <FaithfulResumeView
+                      text={liveReveal.liveText || originalText}
+                      label={tailorStep === 'processing' ? 'AI thinking…' : 'AI editing live'}
+                      highlightNeedles={liveReveal.highlightNeedles}
+                      pendingChange={liveReveal.pendingChange}
+                      thinkingMessage={liveReveal.thinkingMessage}
+                      showCursor={tailorStep === 'processing' || !!liveReveal.pendingChange}
+                    />
+                  )}
+
+                  {tailorStep === 'result' && editMode && (
+                    <div className="flex-1 min-h-0 flex flex-col">
+                      <div className="px-4 py-2 border-b border-neutral-300 bg-neutral-50 text-xs font-semibold text-neutral-700 uppercase tracking-wider shrink-0">
+                        Edit text — download keeps your uploaded layout
+                      </div>
+                      <Textarea
+                        className="flex-1 min-h-0 rounded-none border-0 font-['Times_New_Roman',serif] text-[13px] leading-relaxed p-6 resize-none focus-visible:ring-0 bg-white text-neutral-900 placeholder:text-neutral-400"
+                        style={{ color: '#171717' }}
+                        value={editableTailoredText}
+                        onChange={e => setEditableTailoredText(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  {tailorStep === 'result' && !editMode && sourceDocx && (
+                    <ResumeHtmlPreview
+                      html={tailoredDocxHtml}
+                      label="Tailored resume (matches Word download)"
+                      emptyMessage={docPreview.isDocxReady ? 'Loading preview…' : 'Building Word preview…'}
+                    />
+                  )}
+
+                  {tailorStep === 'result' && !editMode && !sourceDocx && (
+                    <FaithfulResumeView
+                      text={tailoredTextForPreview}
+                      label="Tailored resume"
+                      highlightNeedles={resultHighlightNeedles}
+                    />
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -558,6 +1014,38 @@ export default function ResumesPage() {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="w-40">
+            <Select
+              value={versionFilter}
+              onValueChange={(v) => {
+                setVersionFilter(v);
+                if (v !== "custom") setCustomVersion("");
+              }}
+            >
+              <SelectTrigger className="bg-card border-border"><SelectValue placeholder="All Versions" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Versions</SelectItem>
+                <SelectItem value="base">Base</SelectItem>
+                {availableVersions.map((n) => (
+                  <SelectItem key={n} value={`v${n}`}>V{n}</SelectItem>
+                ))}
+                <SelectItem value="custom">Custom…</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {versionFilter === "custom" && (
+            <div className="w-48">
+              <Input
+                autoFocus
+                value={customVersion}
+                onChange={(e) => setCustomVersion(e.target.value)}
+                placeholder="Type a version…"
+                className="bg-card border-border"
+              />
+            </div>
+          )}
 
           {/* Upload Dialog */}
           <Dialog open={uploadOpen} onOpenChange={v => { setUploadOpen(v); if (!v) { setUploadFile(null); setUploadText(''); setUploadCandId(''); } }}>
@@ -585,42 +1073,38 @@ export default function ResumesPage() {
                   <Input value={uploadVersionName} onChange={e => setUploadVersionName(e.target.value)} placeholder="Base Resume v1" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Resume File <span className="text-muted-foreground text-xs font-normal">(PDF, DOCX, TXT — for storage & download)</span></Label>
+                  <Label>Resume File <span className="text-muted-foreground text-xs font-normal">(PDF or DOCX — text extracted automatically)</span></Label>
                   <div
                     className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
                     onClick={() => document.getElementById('resume-file-input')?.click()}
                   >
-                    <Upload className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
+                    {isParsingUpload ? (
+                      <Loader2 className="w-6 h-6 text-primary mx-auto mb-2 animate-spin" />
+                    ) : (
+                      <Upload className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
+                    )}
                     {uploadFile ? (
                       <p className="text-sm font-medium text-primary">{uploadFile.name}</p>
                     ) : (
-                      <p className="text-sm text-muted-foreground">Click to choose a file</p>
+                      <p className="text-sm text-muted-foreground">Click to choose PDF or DOCX</p>
                     )}
                     <input
                       id="resume-file-input"
                       type="file"
-                      accept=".pdf,.docx,.doc,.txt"
+                      accept={resumeFileAccept()}
                       className="hidden"
-                      onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                      onChange={e => handleUploadFilePick(e.target.files?.[0] || null)}
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Resume Text <span className="text-muted-foreground text-xs font-normal">(paste plain text for AI tailoring)</span></Label>
-                  <Textarea
-                    placeholder="Paste the full plain text of the resume here. This is what the AI reads when tailoring. Required for AI Tailor to work."
-                    className="min-h-[140px] text-xs bg-background font-mono resize-none"
-                    value={uploadText}
-                    onChange={e => setUploadText(e.target.value)}
-                  />
-                  {uploadText.length > 0 && <p className="text-[11px] text-muted-foreground">{uploadText.length} characters</p>}
-                </div>
-                <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded text-[11px] text-blue-400">
-                  💡 The AI Tailor only works with the pasted text. Uploading a file stores it for download but doesn't auto-extract text.
-                </div>
+                {uploadText.length > 0 && (
+                  <p className="text-[11px] text-teal-400 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" /> {uploadText.length} characters extracted for AI tailoring
+                  </p>
+                )}
                 <div className="flex justify-end gap-2 pt-1">
                   <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button>
-                  <Button onClick={handleUpload} disabled={isUploading} className="bg-primary text-primary-foreground">
+                  <Button onClick={handleUpload} disabled={isUploading || isParsingUpload || !uploadFile} className="bg-primary text-primary-foreground">
                     {isUploading ? "Uploading…" : "Upload Resume"}
                   </Button>
                 </div>
@@ -637,14 +1121,14 @@ export default function ResumesPage() {
         </div>
       </div>
 
-      {loading ? (
+      <FetchingHint show={ready && isFetching && isFetched} />
+
+      {!ready || isPending ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-48 bg-muted/50 animate-pulse rounded-xl border border-border" />)}
         </div>
-      ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-          Error: {friendlyError(error)}
-        </div>
+      ) : isError ? (
+        <QueryError error={error} onRetry={() => refetch()} label="Failed to load resumes" />
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-xl border border-border py-16 text-center">
           <FileText className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
@@ -658,8 +1142,8 @@ export default function ResumesPage() {
             <div key={r.id} className="bg-card border border-border rounded-xl p-5 card-hover flex flex-col group hover:border-primary/30 transition-colors">
               <div className="flex justify-between items-start mb-3">
                 <div className="min-w-0">
-                  <h3 className="font-bold text-foreground text-base leading-tight truncate pr-2" title={r.candidates?.full_name}>
-                    {r.candidates?.full_name || 'Unknown'}
+                  <h3 className="font-bold text-foreground text-base leading-tight truncate pr-2" title={resumeCandidateName(r.candidates)}>
+                    {resumeCandidateName(r.candidates)}
                   </h3>
                   <div className="text-xs text-muted-foreground mt-0.5 truncate">{r.version_name}</div>
                 </div>
@@ -703,10 +1187,10 @@ export default function ResumesPage() {
 
               <div className="flex gap-2 pt-3 border-t border-border mt-auto opacity-60 group-hover:opacity-100 transition-opacity">
                 <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-border" disabled={!r.pdf_file_url} asChild={!!r.pdf_file_url}>
-                  {r.pdf_file_url ? <a href={r.pdf_file_url} target="_blank" rel="noopener noreferrer"><Download className="w-3 h-3 mr-1.5" />PDF</a> : <><Download className="w-3 h-3 mr-1.5" />PDF</>}
+                  {r.pdf_file_url ? <a href={r.pdf_file_url} target="_blank" rel="noopener noreferrer" download><Download className="w-3 h-3 mr-1.5" />PDF</a> : <><Download className="w-3 h-3 mr-1.5" />PDF</>}
                 </Button>
                 <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-border" disabled={!r.docx_file_url} asChild={!!r.docx_file_url}>
-                  {r.docx_file_url ? <a href={r.docx_file_url} target="_blank" rel="noopener noreferrer"><Download className="w-3 h-3 mr-1.5" />DOCX</a> : <><Download className="w-3 h-3 mr-1.5" />DOCX</>}
+                  {r.docx_file_url ? <a href={r.docx_file_url} target="_blank" rel="noopener noreferrer" download><Download className="w-3 h-3 mr-1.5" />DOCX</a> : <><Download className="w-3 h-3 mr-1.5" />DOCX</>}
                 </Button>
               </div>
             </div>

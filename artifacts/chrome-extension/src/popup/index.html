@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Datanomics</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">DATANOMICS</div>
+      <div class="sub">Reply Assistant</div>
+    </header>
+
+    <div id="auth-view">
+      <p class="hint">Sign in with your Job Search OS account</p>
+      <label>Email</label>
+      <input id="email" type="email" autocomplete="username" />
+      <label>Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+      <button id="login-btn" class="primary">Sign in</button>
+      <p id="auth-error" class="error hidden"></p>
+    </div>
+
+    <div id="logged-in-view" class="hidden">
+      <p class="user-line"><span id="user-name"></span></p>
+      <p class="hint">Open the side panel on LinkedIn, Gmail, or Indeed to draft replies.</p>
+      <button id="open-panel" class="primary">Open reply panel</button>
+      <button id="logout-btn" class="ghost">Sign out</button>
+    </div>
+  </div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

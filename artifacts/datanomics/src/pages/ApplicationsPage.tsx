@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "wouter";
 import { applicationService } from "@/services/applicationService";
-import { friendlyError } from "@/lib/dbError";
-import { candidateService } from "@/services/candidateService";
+import { useApplications, useCandidatesPicklist, useGmailApplyMessages, useInvalidateData } from "@/hooks/useData";
+import { useDataReady } from "@/hooks/useDataReady";
+import { QueryError, FetchingHint, ListSkeleton } from "@/components/ui/QueryState";
 import { computeQualityScore } from "@/lib/utils/qualityScore";
-import type { Application, Candidate } from "@/types";
+import type { Application } from "@/types";
+import type { GmailApplyMessage } from "@/services/gmailSyncService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Filter, Flag, MoreHorizontal, Link as LinkIcon } from "lucide-react";
+import { Search, Filter, Flag, MoreHorizontal, Link as LinkIcon, Mail } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -24,12 +26,35 @@ const SOURCE_COLORS: Record<string, string> = {
   default: "bg-muted text-foreground border-border",
 };
 
+const GMAIL_SOURCE_COLORS: Record<string, string> = {
+  LinkedIn: SOURCE_COLORS.linkedin,
+  Dice: SOURCE_COLORS.dice,
+  Other: SOURCE_COLORS.default,
+};
+
+function formatGmailFrom(msg: GmailApplyMessage): string {
+  if (msg.from_name && msg.from_email) return `${msg.from_name} <${msg.from_email}>`;
+  return msg.from_name || msg.from_email || "—";
+}
+
+function candidateNameFromGmail(msg: GmailApplyMessage): string {
+  return msg.candidates?.full_name ?? "Unknown";
+}
+
 export default function ApplicationsPage() {
   const { user } = useAuthStore();
-  const [data, setData] = useState<Application[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const invalidate = useInvalidateData();
+  const ready = useDataReady();
+  const { data, isPending, isError, error, isFetching, refetch, isFetched } = useApplications();
+  const applications = data ?? [];
+  const {
+    data: gmailMessages = [],
+    isPending: gmailPending,
+    isError: gmailError,
+    error: gmailErr,
+    refetch: refetchGmail,
+  } = useGmailApplyMessages();
+  const { data: candidates = [] } = useCandidatesPicklist();
 
   // Filters
   const [search, setSearch] = useState("");
@@ -51,33 +76,22 @@ export default function ApplicationsPage() {
     quality_notes_added: false,
   });
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [apps, cands] = await Promise.all([
-        applicationService.getAll(),
-        candidateService.getAll()
-      ]);
-      setData(apps);
-      setCandidates(cands);
-    } catch (err: any) {
-      setError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const filteredData = data.filter(a => {
+  const filteredData = applications.filter(a => {
     const matchesSearch = a.company.toLowerCase().includes(search.toLowerCase()) || 
                           a.candidate_name.toLowerCase().includes(search.toLowerCase()) ||
                           a.job_title.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || a.status === statusFilter;
     const matchesFlagged = !showFlagged || a.flagged;
     return matchesSearch && matchesStatus && matchesFlagged;
+  });
+
+  const filteredGmail = gmailMessages.filter((msg) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    const from = formatGmailFrom(msg).toLowerCase();
+    const subject = (msg.subject ?? "").toLowerCase();
+    const candidate = candidateNameFromGmail(msg).toLowerCase();
+    return from.includes(q) || subject.includes(q) || candidate.includes(q);
   });
 
   const handleLogApp = async (e: React.FormEvent) => {
@@ -112,7 +126,7 @@ export default function ApplicationsPage() {
       });
       toast.success("Application logged successfully");
       setIsSheetOpen(false);
-      loadData();
+      invalidate.applications();
     } catch (err: any) {
       toast.error(err.message || "Failed to log application");
     } finally {
@@ -127,7 +141,7 @@ export default function ApplicationsPage() {
       } else {
         await applicationService.flag(id, "Flagged manually");
       }
-      loadData();
+      invalidate.applications();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -275,14 +289,89 @@ export default function ApplicationsPage() {
         </Button>
       </div>
 
-      {loading ? (
-        <div className="bg-card rounded-lg border border-border p-4 space-y-4">
-          {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-16 bg-muted/50 animate-pulse rounded-md" />)}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-display font-bold flex items-center gap-2">
+            <Mail className="w-5 h-5 text-primary" />
+            Gmail Apply confirmations
+          </h2>
+          <span className="text-xs text-muted-foreground">Headers only · from synced Apply label</span>
         </div>
-      ) : error ? (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
-          Error loading applications: {friendlyError(error)}
-        </div>
+
+        {gmailPending && ready ? (
+          <ListSkeleton />
+        ) : gmailError ? (
+          <QueryError error={gmailErr} onRetry={() => refetchGmail()} label="Failed to load Gmail apply emails" />
+        ) : filteredGmail.length === 0 ? (
+          <div className="bg-card rounded-lg border border-border py-10 text-center text-muted-foreground text-sm">
+            {gmailMessages.length === 0
+              ? "No Gmail Apply emails synced yet. Connect a candidate’s Google account to start tracking."
+              : "No Gmail emails match your search."}
+          </div>
+        ) : (
+          <div className="bg-card rounded-lg border border-border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-foreground">
+                <thead className="bg-muted text-muted-foreground border-b border-border">
+                  <tr>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Candidate</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">From</th>
+                    <th className="px-4 py-3 font-medium">Subject</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Source</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap text-right">Received</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredGmail.map((msg) => (
+                    <tr key={msg.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Link
+                          href={`/candidates/${msg.candidate_id}`}
+                          className="font-semibold hover:text-primary transition-colors"
+                        >
+                          {candidateNameFromGmail(msg)}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-[220px] truncate" title={formatGmailFrom(msg)}>
+                        {formatGmailFrom(msg)}
+                      </td>
+                      <td className="px-4 py-3 font-medium max-w-md truncate" title={msg.subject ?? undefined}>
+                        {msg.subject || <span className="text-muted-foreground italic">No subject</span>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${GMAIL_SOURCE_COLORS[msg.detected_source] ?? SOURCE_COLORS.default}`}
+                        >
+                          {msg.detected_source}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(msg.received_date).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-lg font-display font-bold">Logged applications</h2>
+      </div>
+
+      <FetchingHint show={ready && isFetching && isFetched} />
+
+      {!ready || isPending ? (
+        <ListSkeleton />
+      ) : isError ? (
+        <QueryError error={error} onRetry={() => refetch()} label="Failed to load applications" />
       ) : filteredData.length === 0 ? (
         <div className="bg-card rounded-lg border border-border py-16 text-center text-muted-foreground">
           No applications match your filters.

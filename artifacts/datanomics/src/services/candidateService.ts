@@ -1,14 +1,34 @@
 import { supabase } from '../lib/supabase';
 import type { Candidate, CandidateNote, FollowUp } from '../types';
 
+/** Columns needed for list/table views — avoids loading notes, passwords, etc. */
+const CANDIDATE_LIST_COLUMNS =
+  'id, full_name, email, phone, status, work_auth, target_roles, skills, experience_years, primary_assignee_id, total_applications, total_replies, total_interviews, total_offers, city, state, linkedin_url, client_portal_enabled, created_at, updated_at, preferred_work_modes, willing_to_relocate, country, preferred_states, tags';
+
+const CANDIDATE_PICKLIST_COLUMNS = 'id, full_name, email, status, target_roles, work_auth, skills';
+
 export const candidateService = {
-  async getAll() {
+  async getList() {
     const { data, error } = await supabase
       .from('candidates')
-      .select('*')
+      .select(CANDIDATE_LIST_COLUMNS)
       .order('created_at', { ascending: false });
     if (error) throw error;
     return data as Candidate[];
+  },
+
+  async getPicklist() {
+    const { data, error } = await supabase
+      .from('candidates')
+      .select(CANDIDATE_PICKLIST_COLUMNS)
+      .order('full_name', { ascending: true });
+    if (error) throw error;
+    return data as Pick<Candidate, 'id' | 'full_name' | 'email' | 'status' | 'target_roles' | 'work_auth' | 'skills'>[];
+  },
+
+  /** Full row — use for detail views only */
+  async getAll() {
+    return this.getList();
   },
 
   async getById(id: string) {
@@ -119,7 +139,7 @@ export const candidateService = {
     const { data, error } = await supabase.from('candidates').select('status');
     if (error) throw error;
     const counts: Record<string, number> = {};
-    for (const row of data) {
+    for (const row of data ?? []) {
       counts[row.status] = (counts[row.status] ?? 0) + 1;
     }
     return counts;

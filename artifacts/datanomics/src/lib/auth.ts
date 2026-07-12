@@ -1,16 +1,26 @@
 import { supabase } from './supabase';
+import { withTimeout } from './fetchUtils';
+import { formatNetworkError } from './supabaseHealth';
 import type { Profile, UserRole } from '../types';
 
 export async function signIn(email: string, password: string) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  // Fire-and-forget — don't block login on profile update errors
-  supabase
-    .from('profiles')
-    .update({ last_login_at: new Date().toISOString() })
-    .eq('id', data.user.id)
-    .then(() => {});
-  return data;
+  try {
+    const { data, error } = await withTimeout(
+      supabase.auth.signInWithPassword({ email, password }),
+      12_000,
+      'Sign in',
+    );
+    if (error) throw error;
+    // Fire-and-forget — don't block login on profile update errors
+    supabase
+      .from('profiles')
+      .update({ last_login_at: new Date().toISOString() })
+      .eq('id', data.user.id)
+      .then(() => {});
+    return data;
+  } catch (err) {
+    throw new Error(formatNetworkError(err));
+  }
 }
 
 export async function signOut() {

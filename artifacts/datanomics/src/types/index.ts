@@ -82,6 +82,8 @@ export interface Candidate {
   tags: string[];
   notes: string;
   client_portal_enabled: boolean;
+  job_research_enabled?: boolean;
+  last_job_research_at?: string | null;
   created_by?: string;
   created_at: string;
   updated_at: string;

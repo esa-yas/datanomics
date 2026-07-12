@@ -5,7 +5,9 @@ import { candidateService } from "@/services/candidateService";
 import { applicationService } from "@/services/applicationService";
 import { resumeService } from "@/services/resumeService";
 import { callAI, aiTailorResume } from "@/lib/ai";
-import type { Candidate, Application, Resume, CandidateNote, FollowUp } from "@/types";
+import { buildTailoredText } from "@/lib/utils/resumeTailor";
+import type { Candidate, Application, Resume, CandidateNote } from "@/types";
+import { gmailSyncService, type GmailApplyMessage, type GmailSyncLog, type InterviewStats } from "@/services/gmailSyncService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,9 +15,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Checkbox } from "@/components/ui/checkbox";
 import toast from "react-hot-toast";
-import { ArrowRight, Download, FileText, Target, MapPin, DollarSign, ExternalLink, Calendar, CheckCircle2, Briefcase, Mail, Plus, User } from "lucide-react";
+import { ArrowRight, Download, FileText, Target, DollarSign, ExternalLink, CheckCircle2, Briefcase, Plus, User, AlertCircle, Loader2, Mail, Link2 } from "lucide-react";
+import { GoogleGmailSyncCard } from "@/components/candidate/GoogleGmailSyncCard";
+import { JobResearchCard } from "@/components/candidate/JobResearchCard";
+import { InterviewPracticeCard } from "@/components/candidate/InterviewPracticeCard";
+import { CandidateAssignmentCard } from "@/components/candidate/CandidateAssignmentCard";
+import { ImportedProfileView } from "@/components/profiles/ImportedProfileView";
+import { importedProfileService } from "@/services/importedProfileService";
+import type { ImportedProfile } from "@/lib/profiles/importedProfiles";
+import { useAuthStore } from "@/stores/authStore";
+import { canConnectGmail, canManageCandidateAssignments } from "@/lib/permissions";
 
 const STATUS_COLORS: Record<string, string> = {
   lead: "bg-blue-500/20 text-blue-300 border-blue-500/30",
@@ -29,6 +39,9 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function CandidateDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuthStore();
+  const allowGmailConnect = canConnectGmail(user?.role);
+  const allowAssignmentEdit = canManageCandidateAssignments(user?.role);
   const [data, setData] = useState<Candidate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -38,24 +51,41 @@ export default function CandidateDetailPage() {
   const [apps, setApps] = useState<Application[]>([]);
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [notes, setNotes] = useState<CandidateNote[]>([]);
-  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [gmailApplies, setGmailApplies] = useState<GmailApplyMessage[]>([]);
+  const [syncLogs, setSyncLogs] = useState<GmailSyncLog[]>([]);
+  const [interviewStats, setInterviewStats] = useState<InterviewStats | null>(null);
+  const [importedProfile, setImportedProfile] = useState<ImportedProfile | null>(null);
 
   const loadAll = async () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [cand, a, r, n, f] = await Promise.all([
+      const [cand, a, r, n, gmail, logs, interviews] = await Promise.all([
         candidateService.getById(id),
         applicationService.getByCandidate(id),
         resumeService.getByCandidate(id),
         candidateService.getNotes(id),
-        candidateService.getFollowUps(id)
+        gmailSyncService.listApplyMessages({ candidateId: id, limit: 500 }),
+        gmailSyncService.getAllSyncLogs(id),
+        gmailSyncService.getInterviewStats(id).catch(() => ({ total: 0, last7Days: 0, recent: [] })),
       ]);
       setData(cand);
       setApps(a);
       setResumes(r);
       setNotes(n);
-      setFollowUps(f);
+      setGmailApplies(gmail);
+      setSyncLogs(logs);
+      setInterviewStats(interviews);
+
+      // Link the imported intake profile by matching email (best-effort).
+      if (cand.email) {
+        importedProfileService
+          .getByEmail(cand.email)
+          .then(setImportedProfile)
+          .catch(() => setImportedProfile(null));
+      } else {
+        setImportedProfile(null);
+      }
     } catch (err: any) {
       setError(err);
     } finally {
@@ -70,9 +100,17 @@ export default function CandidateDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!data) return;
     try {
-      const updated = await candidateService.update(data.id, { status: newStatus as any });
+      const updates: { status: typeof data.status; job_research_enabled?: boolean } = {
+        status: newStatus as typeof data.status,
+      };
+      if (newStatus === 'placed') {
+        updates.job_research_enabled = false;
+      }
+      const updated = await candidateService.update(data.id, updates);
       setData(updated);
-      toast.success("Status updated");
+      toast.success(
+        newStatus === 'placed' ? 'Status updated — AI job search paused' : 'Status updated',
+      );
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -147,7 +185,6 @@ export default function CandidateDetailPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="border-border hover:bg-muted"><Mail className="w-4 h-4 mr-2" /> Email</Button>
             {data.linkedin_url && (
               <Button variant="outline" className="border-border hover:bg-muted" onClick={() => window.open(data.linkedin_url, '_blank')}>
                 <ExternalLink className="w-4 h-4 mr-2" /> LinkedIn
@@ -159,22 +196,30 @@ export default function CandidateDetailPage() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Applications", value: apps.length, color: "text-blue-400" },
+          { label: "Applications", value: gmailApplies.length || apps.length, color: "text-blue-400" },
           { label: "Replies", value: apps.filter(a => ['recruiter_replied','phone_screen','interview_scheduled','interview_done','final_round','offer'].includes(a.status)).length, color: "text-purple-400" },
-          { label: "Interviews", value: apps.filter(a => ['interview_scheduled','interview_done','final_round'].includes(a.status)).length, color: "text-yellow-400" },
+          {
+            label: "Interviews",
+            value: interviewStats?.total ?? 0,
+            sub: interviewStats ? `${interviewStats.last7Days} last 7 days` : undefined,
+            color: "text-yellow-400",
+          },
           { label: "Offers", value: apps.filter(a => a.status === 'offer').length, color: "text-green-400" },
         ].map((stat, i) => (
           <div key={i} className="bg-card border border-border rounded-xl p-5 shadow-sm relative overflow-hidden group">
             <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-gradient-to-br from-transparent to-muted opacity-50 rounded-full group-hover:scale-110 transition-transform duration-500" />
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-1">{stat.label}</span>
             <div className={`text-3xl font-display font-extrabold ${stat.color}`}>{stat.value}</div>
+            {'sub' in stat && stat.sub && (
+              <div className="text-xs text-muted-foreground mt-1">{stat.sub}</div>
+            )}
           </div>
         ))}
       </div>
 
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
         <div className="flex border-b border-border overflow-x-auto no-scrollbar">
-          {['overview', 'applications', 'resumes', 'notes', 'follow_ups'].map(t => (
+          {['overview', 'job_research', 'interview_practice', 'applications', 'resumes', 'notes', ...(importedProfile ? ['intake'] : [])].map(t => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
@@ -184,26 +229,119 @@ export default function CandidateDetailPage() {
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               }`}
             >
-              {t.replace('_', ' ').charAt(0).toUpperCase() + t.slice(1).replace('_', ' ')}
+              {t === 'job_research'
+                ? 'Job research'
+                : t === 'interview_practice'
+                  ? 'Interview practice'
+                  : t.replace('_', ' ').charAt(0).toUpperCase() + t.slice(1).replace('_', ' ')}
             </button>
           ))}
         </div>
         
         <div className="p-6">
-          {activeTab === 'overview' && <OverviewTab data={data} />}
-          {activeTab === 'applications' && <ApplicationsTab data={data} apps={apps} />}
+          {activeTab === 'overview' && (
+            <>
+              {allowAssignmentEdit && (
+                <div className="mb-6">
+                  <CandidateAssignmentCard candidate={data} onUpdated={setData} />
+                </div>
+              )}
+              <OverviewTab data={data} readOnlyGmail={!allowGmailConnect} interviewStats={interviewStats} />
+            </>
+          )}
+          {activeTab === 'job_research' && (
+            <JobResearchTab
+              data={data}
+              onAutoToggle={(enabled) => setData((d) => (d ? { ...d, job_research_enabled: enabled } : d))}
+            />
+          )}
+          {activeTab === 'interview_practice' && (
+            <InterviewPracticeCard
+              candidateId={data.id}
+              candidateName={data.full_name}
+              resumes={resumes}
+            />
+          )}
+          {activeTab === 'applications' && (
+            <ApplicationsTab apps={apps} gmailApplies={gmailApplies} syncLogs={syncLogs} />
+          )}
           {activeTab === 'resumes' && <ResumesTab data={data} resumes={resumes} onTailored={loadAll} />}
           {activeTab === 'notes' && <NotesTab data={data} notes={notes} onNoteAdded={loadAll} timeAgo={timeAgo} />}
-          {activeTab === 'follow_ups' && <FollowUpsTab data={data} followUps={followUps} onUpdate={loadAll} />}
+          {activeTab === 'intake' && importedProfile && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm text-foreground/90">
+                <Link2 className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+                <span>
+                  Linked to an imported intake profile by matching email. This is the candidate&apos;s
+                  original submission — resumes are tailored separately in the Resumes tab.
+                </span>
+              </div>
+              <ImportedProfileView profile={importedProfile} />
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function OverviewTab({ data }: { data: Candidate }) {
+function JobResearchTab({
+  data,
+  onAutoToggle,
+}: {
+  data: Candidate;
+  onAutoToggle: (enabled: boolean) => void;
+}) {
+  return (
+    <JobResearchCard
+      candidateId={data.id}
+      candidateName={data.full_name}
+      targetRoles={data.target_roles ?? []}
+      candidateStatus={data.status}
+      autoEnabled={data.job_research_enabled ?? true}
+      lastResearchAt={data.last_job_research_at}
+      onAutoToggle={onAutoToggle}
+    />
+  );
+}
+
+function OverviewTab({
+  data,
+  readOnlyGmail,
+  interviewStats,
+}: {
+  data: Candidate;
+  readOnlyGmail?: boolean;
+  interviewStats: InterviewStats | null;
+}) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="space-y-6 md:col-span-2">
+        <GoogleGmailSyncCard candidateId={data.id} candidateName={data.full_name} readOnly={readOnlyGmail} />
+      </div>
+
+      {interviewStats && interviewStats.recent.length > 0 && (
+        <div className="space-y-3 md:col-span-2">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <Mail className="w-4 h-4" /> Recent interviews (Gmail &quot;Interview&quot; label · last 7 days)
+          </h3>
+          <div className="bg-background rounded-lg border border-border divide-y divide-border">
+            {interviewStats.recent.map((msg) => (
+              <div key={msg.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm truncate">{msg.subject || '(No subject)'}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {msg.from_name || msg.from_email || 'Unknown sender'}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                  {new Date(msg.received_date).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="space-y-6">
         <div>
           <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2"><User className="w-4 h-4" /> Contact Info</h3>
@@ -273,53 +411,161 @@ function OverviewTab({ data }: { data: Candidate }) {
   );
 }
 
-function ApplicationsTab({ data, apps }: { data: Candidate, apps: Application[] }) {
-  if (apps.length === 0) {
+function formatSyncLogSummary(log: GmailSyncLog): string {
+  if (log.status === 'failed') return log.error_message ?? 'Failed';
+  if (log.messages_imported > 0) {
+    return `${log.messages_imported} new message${log.messages_imported === 1 ? '' : 's'}`;
+  }
+  if (log.messages_found > 0) return `${log.messages_found} checked, none new`;
+  return 'Up to date';
+}
+
+const GMAIL_SOURCE_COLORS: Record<string, string> = {
+  LinkedIn: 'bg-blue-600/20 text-blue-400 border-blue-600/30',
+  Dice: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  Other: 'bg-muted text-foreground border-border',
+};
+
+function ApplicationsTab({
+  apps,
+  gmailApplies,
+  syncLogs,
+}: {
+  apps: Application[];
+  gmailApplies: GmailApplyMessage[];
+  syncLogs: GmailSyncLog[];
+}) {
+  const hasAny = apps.length > 0 || gmailApplies.length > 0 || syncLogs.length > 0;
+
+  if (!hasAny) {
     return (
       <div className="text-center py-12">
         <Briefcase className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-        <h3 className="text-lg font-medium mb-2">No applications yet</h3>
-        <Button variant="outline" className="mt-2">Log First Application</Button>
+        <h3 className="text-lg font-medium mb-2">No application activity yet</h3>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          Gmail Apply messages and sync logs appear here after Gmail is connected and synced.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-muted text-muted-foreground border-b border-border">
-          <tr>
-            <th className="px-4 py-3 font-medium">Company & Role</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3 font-medium">Quality</th>
-            <th className="px-4 py-3 font-medium text-right">Date</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {apps.map(a => (
-            <tr key={a.id} className="hover:bg-muted/30">
-              <td className="px-4 py-3">
-                <div className="font-medium text-foreground">{a.company}</div>
-                <div className="text-xs text-muted-foreground">{a.job_title}</div>
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-muted border border-border">
-                  {a.status.replace(/_/g, ' ')}
-                </span>
-              </td>
-              <td className="px-4 py-3 w-48">
+    <div className="space-y-10">
+      <section className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          Gmail Apply label ({gmailApplies.length})
+        </h3>
+        {gmailApplies.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No messages synced from the Gmail &quot;Apply&quot; label yet.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Subject / From</th>
+                  <th className="px-4 py-3 font-medium">Source</th>
+                  <th className="px-4 py-3 font-medium text-right">Received</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {gmailApplies.map((msg) => (
+                  <tr key={msg.id} className="hover:bg-muted/30">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-foreground truncate max-w-md">{msg.subject || '(No subject)'}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {msg.from_name || msg.from_email || '—'}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${GMAIL_SOURCE_COLORS[msg.detected_source] ?? GMAIL_SOURCE_COLORS.Other}`}>
+                        {msg.detected_source}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(msg.received_date).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+          Gmail sync logs ({syncLogs.length})
+        </h3>
+        {syncLogs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No sync runs recorded yet.</p>
+        ) : (
+          <div className="rounded-lg border border-border divide-y divide-border">
+            {syncLogs.map((log) => (
+              <div key={log.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
                 <div className="flex items-center gap-2">
-                  <Progress value={a.quality_score} className="h-2 flex-1" />
-                  <span className="text-xs font-medium w-8 text-right">{a.quality_score}%</span>
+                  {log.status === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                  ) : log.status === 'failed' ? (
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  ) : (
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+                  )}
+                  <span className="font-medium capitalize">{log.status}</span>
+                  <span className="text-muted-foreground">· {formatSyncLogSummary(log)}</span>
                 </div>
-              </td>
-              <td className="px-4 py-3 text-right text-muted-foreground text-xs whitespace-nowrap">
-                {new Date(a.applied_at).toLocaleDateString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(log.sync_started_at).toLocaleString()}
+                  {log.sync_finished_at && ` → ${new Date(log.sync_finished_at).toLocaleTimeString()}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {apps.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+            Manually logged applications ({apps.length})
+          </h3>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Company & Role</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Quality</th>
+                  <th className="px-4 py-3 font-medium text-right">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {apps.map((a) => (
+                  <tr key={a.id} className="hover:bg-muted/30">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-foreground">{a.company}</div>
+                      <div className="text-xs text-muted-foreground">{a.job_title}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-muted border border-border">
+                        {a.status.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 w-48">
+                      <div className="flex items-center gap-2">
+                        <Progress value={a.quality_score} className="h-2 flex-1" />
+                        <span className="text-xs font-medium w-8 text-right">{a.quality_score}%</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground text-xs whitespace-nowrap">
+                      {new Date(a.applied_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -338,8 +584,10 @@ function ResumesTab({ data, resumes, onTailored }: { data: Candidate, resumes: R
     
     setIsTailoring(true);
     try {
-      const res = await aiTailorResume(baseResume.raw_text || baseResume.summary, jd, data.full_name);
-      setResult(res);
+      const resumeText = baseResume.raw_text || baseResume.summary;
+      const res = await aiTailorResume(resumeText, jd, data.full_name);
+      const tailored = buildTailoredText(resumeText, res, jd);
+      setResult({ ...res, tailoredResumeText: tailored });
       toast.success("Analysis complete");
     } catch (err: any) {
       toast.error(err.message || "Tailoring failed");
@@ -360,6 +608,7 @@ function ResumesTab({ data, resumes, onTailored }: { data: Candidate, resumes: R
         summary: result.optimizedSummary || "",
         skills: result.optimizedSkills || [],
         experience: [],
+        raw_text: result.tailoredResumeText || '',
         added_keywords: result.addedKeywords || [],
         match_score_before: result.matchScoreBefore,
         match_score_after: result.matchScoreAfter,
@@ -496,14 +745,24 @@ function ResumesTab({ data, resumes, onTailored }: { data: Candidate, resumes: R
 }
 
 function NotesTab({ data, notes, onNoteAdded, timeAgo }: { data: Candidate, notes: CandidateNote[], onNoteAdded: () => void, timeAgo: (d: string) => string }) {
+  const { user } = useAuthStore();
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const handleAdd = async () => {
     if (!content.trim()) return;
+    if (!user?.id) {
+      toast.error("You must be signed in to add a note");
+      return;
+    }
     setSubmitting(true);
     try {
-      await candidateService.addNote(data.id, content, 'system', 'System User'); // Simplified auth for task
+      await candidateService.addNote(
+        data.id,
+        content.trim(),
+        user.id,
+        user.display_name || user.email || 'Staff',
+      );
       setContent("");
       onNoteAdded();
       toast.success("Note added");
@@ -535,116 +794,18 @@ function NotesTab({ data, notes, onNoteAdded, timeAgo }: { data: Candidate, note
           notes.map(n => (
             <div key={n.id} className="bg-background border border-border p-4 rounded-lg flex gap-4">
               <div className="w-8 h-8 rounded-full bg-secondary/20 text-secondary flex items-center justify-center font-bold text-xs shrink-0">
-                {n.author_name.charAt(0)}
+                {(n.author_name || '?').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1">
-                <div className="flex justify-between items-baseline mb-1">
-                  <div className="font-semibold text-sm">{n.author_name}</div>
-                  <div className="text-xs text-muted-foreground">{timeAgo(n.created_at)}</div>
+                <div className="flex justify-between items-baseline mb-1 gap-2">
+                  <div className="font-semibold text-sm">{n.author_name || 'Unknown'}</div>
+                  <div className="text-xs text-muted-foreground shrink-0">{timeAgo(n.created_at)}</div>
                 </div>
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{n.content}</p>
               </div>
             </div>
           ))
         )}
-      </div>
-    </div>
-  );
-}
-
-function FollowUpsTab({ data, followUps, onUpdate }: { data: Candidate, followUps: FollowUp[], onUpdate: () => void }) {
-  const [desc, setDesc] = useState("");
-  const [date, setDate] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!desc || !date) return;
-    setSubmitting(true);
-    try {
-      await candidateService.addFollowUp({
-        candidate_id: data.id,
-        description: desc,
-        due_date: date,
-        assigned_to: 'system',
-        completed: false
-      });
-      setDesc("");
-      setDate("");
-      onUpdate();
-      toast.success("Follow-up scheduled");
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const toggleComplete = async (id: string, current: boolean) => {
-    if (current) return;
-    try {
-      await candidateService.completeFollowUp(id);
-      onUpdate();
-    } catch (err: any) {
-      toast.error(err.message);
-    }
-  };
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-      <div className="md:col-span-2 space-y-4">
-        {followUps.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-border rounded-lg text-muted-foreground">
-            No follow-ups scheduled.
-          </div>
-        ) : (
-          followUps.map(f => {
-            const isOverdue = !f.completed && new Date(f.due_date) < new Date() && new Date(f.due_date).toDateString() !== new Date().toDateString();
-            return (
-              <div key={f.id} className={`p-4 rounded-lg border flex items-start gap-4 transition-colors ${f.completed ? 'bg-muted/30 border-border/50 opacity-60' : isOverdue ? 'bg-destructive/5 border-destructive/30' : 'bg-background border-border hover:border-primary/50'}`}>
-                <Checkbox 
-                  checked={f.completed} 
-                  onCheckedChange={() => toggleComplete(f.id, f.completed)} 
-                  disabled={f.completed}
-                  className="mt-1"
-                />
-                <div className="flex-1">
-                  <p className={`text-sm font-medium ${f.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                    {f.description}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 text-xs">
-                    <Calendar className="w-3 h-3 text-muted-foreground" />
-                    <span className={isOverdue ? 'text-destructive font-bold' : 'text-muted-foreground'}>
-                      Due: {new Date(f.due_date).toLocaleDateString()}
-                    </span>
-                    {f.completed && <span className="text-green-500 font-medium ml-2">Completed</span>}
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-      
-      <div className="bg-muted/20 p-5 rounded-lg border border-border h-fit">
-        <h3 className="font-semibold mb-4">Schedule Follow-up</h3>
-        <form onSubmit={handleAdd} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Date</Label>
-            <Input type="date" value={date} onChange={e => setDate(e.target.value)} required className="bg-background" />
-          </div>
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea 
-              value={desc} 
-              onChange={e => setDesc(e.target.value)} 
-              placeholder="Check in on interview status..."
-              required
-              className="bg-background min-h-[100px]"
-            />
-          </div>
-          <Button type="submit" className="w-full" disabled={submitting}>Add Follow-up</Button>
-        </form>
       </div>
     </div>
   );

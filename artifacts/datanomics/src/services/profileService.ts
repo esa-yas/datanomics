@@ -32,6 +32,17 @@ export const profileService = {
     return data as Profile[];
   },
 
+  async getJobSearchAssistants() {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, display_name, email, role')
+      .eq('role', 'job_search_assistant')
+      .eq('status', 'active')
+      .order('display_name', { ascending: true });
+    if (error) throw error;
+    return data as Pick<Profile, 'id' | 'display_name' | 'email' | 'role'>[];
+  },
+
   async update(id: string, updates: Partial<Profile>) {
     const { data, error } = await supabase
       .from('profiles')

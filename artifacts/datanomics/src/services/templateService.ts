@@ -53,6 +53,9 @@ export const templateService = {
       const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
       body = body.replace(regex, value);
       subject = subject.replace(regex, value);
+      const bracket = new RegExp(`\\[${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'gi');
+      body = body.replace(bracket, value);
+      subject = subject.replace(bracket, value);
     }
     return body;
   },

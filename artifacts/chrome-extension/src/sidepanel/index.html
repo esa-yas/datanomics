@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reply Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <div class="logo">DATANOMICS</div>
+        <div class="sub">AI Reply Assistant</div>
+      </div>
+      <span id="platform-badge" class="badge hidden"></span>
+    </header>
+
+    <div id="login-required" class="card hidden">
+      <p>Sign in via the extension popup first.</p>
+    </div>
+
+    <div id="main-ui" class="hidden">
+      <div class="card">
+        <label>Candidate</label>
+        <select id="candidate"></select>
+
+        <div class="row">
+          <div class="col">
+            <label>Channel</label>
+            <select id="channel">
+              <option value="email">Email</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="phone">SMS / Phone</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>Intent</label>
+            <select id="intent"></select>
+          </div>
+        </div>
+
+        <label>Subject <span class="optional">(email)</span></label>
+        <input id="subject" placeholder="Re: Interview request" />
+
+        <div class="conv-header">
+          <label>Conversation</label>
+          <button id="refresh-conv" class="link-btn" type="button">↻ Re-read page</button>
+        </div>
+        <textarea id="conversation" rows="8" placeholder="Paste a recruiter message or open a thread on LinkedIn / Gmail — we auto-capture it here."></textarea>
+        <p id="capture-hint" class="hint"></p>
+
+        <label>Extra notes <span class="optional">(optional)</span></label>
+        <input id="extra-notes" placeholder="e.g. emphasize remote only" />
+
+        <button id="generate" class="primary">✨ Generate reply</button>
+        <p id="error" class="error hidden"></p>
+      </div>
+
+      <div class="card">
+        <div class="conv-header">
+          <label>Draft reply</label>
+          <button id="copy" class="link-btn" type="button" disabled>Copy</button>
+        </div>
+        <input id="reply-subject" class="hidden" placeholder="Reply subject" />
+        <textarea id="reply-body" rows="10" placeholder="Generated reply appears here — edit, then copy into LinkedIn or Gmail."></textarea>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

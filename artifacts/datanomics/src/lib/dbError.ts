@@ -29,7 +29,11 @@ export function friendlyError(err: unknown): string {
   }
 
   if (e.code === '42P17') {
-    return 'Database policy error (infinite recursion). Re-run the RLS fix SQL in Supabase.';
+    return 'Database policy error (infinite recursion). Run supabase/fix-rls-recursion.sql in the Supabase SQL Editor.';
+  }
+
+  if (e.code === '42703') {
+    return `Database column mismatch: ${e.message ?? 'unknown column'}. Update the app or run the latest schema SQL in Supabase.`;
   }
 
   if (e.code === '23505') {
@@ -45,7 +49,15 @@ export function friendlyError(err: unknown): string {
   }
 
   const msg = e.message || e.details || e.hint;
-  if (msg) return msg;
+  if (msg) {
+    if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo')) {
+      return 'Cannot reach Supabase — check VITE_SUPABASE_URL in .env matches your Supabase project (Dashboard → Settings → API).';
+    }
+    if (msg.includes('Failed to fetch') || msg.includes('fetch failed')) {
+      return 'Network error connecting to Supabase. Check internet and your Supabase project URL.';
+    }
+    return msg;
+  }
 
   return 'An unexpected error occurred. Check the browser console for details.';
 }
