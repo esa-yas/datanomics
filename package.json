@@ -6,7 +6,8 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "dev": "bash scripts/dev.sh",
-    "start": "bash scripts/start.sh",
+    "start": "node --enable-source-maps artifacts/api-server/dist/index.mjs",
+    "start:shell": "bash scripts/start.sh",
     "build:web": "pnpm --filter @workspace/datanomics run build",
     "build:api": "node artifacts/api-server/build.mjs",
     "build:app": "pnpm run build:web && pnpm run build:api",
